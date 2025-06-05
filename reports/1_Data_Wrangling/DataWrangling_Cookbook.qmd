@@ -65,7 +65,7 @@ Recipes on how to import data from different file formats.
     How to import Comma Separated Variable file format.
 
     ```{r}
-    readr::read_csv(file = here::here("data/wrangling_files/synthetic_data_2024-11-24.csv"), 
+    df_data <- readr::read_csv(file = here::here("data/wrangling_files/synthetic_data_2024-11-24.csv"), 
                                       
                     # consider the first row as column names
                     col_names = TRUE, 
@@ -73,6 +73,8 @@ Recipes on how to import data from different file formats.
                     skip = 0,
                     # ability to force variable type, by default it guesses
                     col_types = NULL)
+
+    df_data
     ```
 
 -   **Recipe 1b: Reading TSV Files**
@@ -80,13 +82,15 @@ Recipes on how to import data from different file formats.
     How to import Tab Separated Variable file format
 
     ```{r}
-    readr::read_tsv(file=here::here("data/wrangling_files/synthetic_data_2024-11-24.tsv"), 
+    df_data <- readr::read_tsv(file=here::here("data/wrangling_files/synthetic_data_2024-11-24.tsv"), 
                     # consider the first row as column names
                     col_names = TRUE, 
                     # ability to skip the N first rows if needed
                     skip = 0,
                     # ability to force a variable type per column, by default it guesses
                     col_types = NULL)
+
+    df_data
 
     # see also: readr::read_delim()
     ```
@@ -96,7 +100,7 @@ Recipes on how to import data from different file formats.
     How to import XLS or XLSX files
 
     ```{r}
-    readxl::read_excel(path = here::here("data/wrangling_files/synthetic_data_2024-11-24.xlsx"), 
+    df_data <- readxl::read_excel(path = here::here("data/wrangling_files/synthetic_data_2024-11-24.xlsx"), 
                        # specify name or index of the sheet to read
                        sheet = "sheet_2",
                        # consider the first row for column names
@@ -105,6 +109,8 @@ Recipes on how to import data from different file formats.
                        skip = 0,
                        # ability to force a variable type per column, by default it guesses
                        col_types = NULL)
+
+    df_data
     ```
 
 ### Generate a Synthetic Dataset
@@ -191,7 +197,7 @@ Recipes to have a look at your data, and to check that the import went well. Alw
     # use variable names to select them
     synthetic_data_mini <- synthetic_data |> 
                             dplyr::select(Subject_Id, Age, Sex)
-    dplyr::glimpse(synthetic_data_mini)
+    synthetic_data_mini
     ```
 
 -   **Recipe 4b: Reordering Columns**
@@ -202,6 +208,7 @@ Recipes to have a look at your data, and to check that the import went well. Alw
     # swap column order according to list of variables provided
     synthetic_data |> 
       dplyr::select(Subject_Id, Sex, Age, Biomarker_2, Biomarker_1)
+
     # see also: dplyr::relocate()
     ```
 

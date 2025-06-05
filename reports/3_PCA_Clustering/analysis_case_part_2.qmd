@@ -5,6 +5,8 @@ format:
   html:
     toc: true
     toc-location: left
+    code-overflow: scroll
+    embed-resources: true
     theme: cosmo
     reference-location: margin
     citation-location: margin

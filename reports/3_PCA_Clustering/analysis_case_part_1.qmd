@@ -3,6 +3,7 @@ title: "PCA and clustering"
 subtitle: "A complete analysis case - part 1"
 format:
   html:
+    code-overflow: scroll
     embed-resources: true
     toc: true
     toc-location: left

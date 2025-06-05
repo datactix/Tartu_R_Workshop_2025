@@ -6,6 +6,7 @@ format:
     toc: true
     toc-location: left
     toc_float: true
+    code-overflow: scroll
     embed-resources: true
     other-links:
       - text: ggplot2 cheat sheet

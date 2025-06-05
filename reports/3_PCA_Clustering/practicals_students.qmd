@@ -4,6 +4,7 @@ subtitle: "Your turn : hands on !"
 author: "Etienne VILLAIN & the teaching team"      
 format:
   html:
+    code-overflow: scroll
     embed-resources: true
     toc: true
     toc-location: left

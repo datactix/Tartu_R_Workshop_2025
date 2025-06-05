@@ -5,6 +5,7 @@ format:
     toc: true
     toc-location: left
     toc_float: true
+    code-overflow: scroll
     embed-resources: true
 editor: visual
 ---

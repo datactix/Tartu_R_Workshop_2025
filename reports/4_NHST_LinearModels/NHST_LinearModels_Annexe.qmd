@@ -7,6 +7,8 @@ format:
     toc-location: left
     toc-depth: 3
     toc-title: "Table of content"
+    code-overflow: scroll
+    embed-resources: true
 editor: visual
 ---
 
@@ -375,7 +377,7 @@ We show here an example on the cytokine in the generated data. These data *a pri
 In the previous sections a $t$-test or a Wilcoxon test were applied to a given variable. Applying a test on a single variable returns a $p$-value which basically corresponds to the probability of wrongly reject $H_0$. This is the type $I$ error.
 
 | Null Hypothesis | True | False |
-|:---|---:|---:|
+|:-----------------------|-----------------------:|-----------------------:|
 | Reject | Type $I$ Error ($\alpha$) | Correct decision (Power) |
 | Fail to reject | Correct Decision | Type $II$ Error ($\beta = 1 - Power$) |
 

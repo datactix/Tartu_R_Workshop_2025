@@ -1,0 +1,255 @@
+---
+title: "PCA and clusterisation"
+subtitle: "Your turn : hands on !"
+author: "Etienne VILLAIN & the teaching team"      
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-location: left
+    theme: cosmo
+    reference-location: margin
+    citation-location: margin
+    grid:
+      sidebar-width: 300px
+      body-width: 900px
+      margin-width: 300px
+---
+
+```{r general_setup, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+This practical is the logical continuation of the case study previously seen. We will keep working on the same dataset, exploring question we let aside during our previous work.
+
+To answer the question you will have to reuse the code already provided in the analysis case, some complementary resources can also be found in the cookbook as well.
+
+# Preambule : import the data and load the libraries
+
+We load the libraries we are using :
+
+```{r load_lib}
+library(tidyverse)
+library(here)
+library(readr)
+library(FactoMineR)
+library(factoextra)
+library(corrplot)
+library(ggpubr)
+
+```
+
+We load the datasets :
+
+The data are in the `.tsv` format (**t**ab **s**eparated **v**alues), to load them we will use the `readr` dedicated function [`read_tsv()`](https://readr.tidyverse.org/reference/read_delim.html)
+
+```{r, results=FALSE}
+
+meta_data <- readr::read_tsv(here::here('data/curated_datasets/MI_eCRF_Curated.tsv')) 
+
+# We extract the nanostring data 
+ns_data <- readr::read_tsv(here::here('data/curated_datasets/MI_Nanostring-eCRF_Curated.tsv')) %>% 
+  dplyr::select(- dplyr::all_of(colnames(meta_data) %>% setdiff("SUBJID"))) %>% dplyr::filter(! is.na(Stimulus))
+
+
+```
+
+# Objective 1 : Compare the immune reaction to different family of bacteria
+
+During our analysis we had some struggle to differentiate the different bacterial stimulus (*Escherishia Coli*, *Staphylococcus Aureus* and *Bacillus Calmette-Guerin*). We will now try to better characterize the immune reaction towards bacteria, to do so we will essentially following the same analysis plan than the one we previously apply to the full dataset, narrowing it to these stimulation (completed by the NS as a control group).
+
+## General response to bacterial stimuluss
+
+Step 1 : extract from the raw dataset all the sample stimulated by a bacteria, the un-stimulated group (Null) and prepare your data for the PCA
+
+```{r}
+
+```
+
+Step 2 : if needed choose and apply a data transformation
+
+```{r}
+
+```
+
+Step 3 : create the PCA object with the data you prepared at step 1 and 2
+
+```{r}
+
+```
+
+Step 4 : create the scatter plot of the first two components and color it by stimulus
+
+```{r}
+
+
+```
+
+Is it different than the global PCA ?
+
+Are the different stimulus forming distinct clusters ?
+
+Step 5 : are they any other component worth of interest ? Identify them if any and plot them.
+
+Tips : use a scree plot
+
+```{r}
+
+```
+
+Tips : I you struggle to generate a PCA component pair plot you can compare two component at a time using the regular `fviz_pca_ind()` or `fviz_pca_biplot()` .
+
+```{r}
+
+
+```
+
+Step 6 : from the components you selected at step 5, identify 3 genes that are upregulated in response bacterial stimulus
+
+```{r}
+
+```
+
+Using online ressources such as genecard, uniprot or research on pubmed, check what is known about these genes. Does it make sense to have them up-regulated in response to a bacterial stimulus ?
+
+**Bonus**
+
+Step 7 : extract these genes from the dataset and compare their level in response to the different bacterial stimulus (also include the NS condition) using a boxplot (either compare them in different plot -one for each gene- or if you are more comfortable using the facet option)
+
+## Discriminate between BCG and S.Aureus
+
+Remember, in the analysis case BCG and S.Aureus were already the closest stimulus (the groups formed by these stimulus were overlapping each other), this was particularly visible in our 3D plot :
+
+```{r, echo=FALSE, eval = FALSE}
+#this code is given to help you visualize in 3D
+ns_data %>%
+  dplyr::select(-dplyr::any_of(c('SUBJID','Stimulus','batch.NS','batch.TruCult'))) %>%
+  dplyr::mutate_all(.funs = asinh) %>%
+  FactoMineR::PCA(graph = FALSE, scale.unit = FALSE, ncp = 10) %>%
+  {.$'ind'$'coord'} %>%
+  tibble::as_tibble(rownames = 'sample_id') %>%
+  dplyr::select(dplyr::all_of(c('sample_id', paste0('Dim.',1:3)))) %>%
+  plotly::plot_ly(x = ~Dim.1, y = ~Dim.2, z = ~Dim.3, text = ~sample_id, color = ns_data$Stimulus, trace = 'scatter3d')
+```
+
+But in our previous analysis, we got some clue (slight discrimination on the component 3) that they were some genes differentially expressed between the two that could allow us to discriminate between this two stimulus.
+
+Our goal is now to find these genes !
+
+### Step 1 : extract only this two stimulus
+
+```{r}
+
+```
+
+### Step 2 : compute the PCA
+
+```{r}
+
+```
+
+### Step 3 : identify the components of interest
+
+```{r}
+
+```
+
+### Step 4 : extract the genes of interest
+
+```{r}
+
+```
+
+### Step 5 : Visualize the differences between stimulation for the most interesting ones :
+
+```{r}
+
+
+```
+
+# Objective 2 : Explore the inter-individual variability in the immune response to S.aureus
+
+## Identify up to 3 genes, you suspect to be present a sex effect in response to S.Aureus stimulation ?
+
+Tips : follow the same procedure than in the previous questions, color the PCA scatter plot using the Sex column in the meta-data
+
+```{r}
+
+```
+
+## Check if you observe a similar pattern for the 2 other bacterial stimulation as well
+
+```{r}
+
+```
+
+# **Bonus** Objective 3 : pimp your PCA
+
+## Marginal boxplot
+
+Using the `factoextra` functions we already used before, and the package [`ggExtra`](https://www.rdocumentation.org/packages/ggExtra/versions/0.8) reproduce the following plot :
+
+![PCA with marginal density](img/pca_marginal_bp.png){fig-align="center"}
+
+Step 1 : Compute the PCA object (or reuse one from previous questions)
+
+```{r}
+
+  
+```
+
+Step 2 : produce the central plot using the factoextra library
+
+```{r}
+
+```
+
+Tips : to move the legend of a ggplot plot to the bottom and remove it's title you can use the following code :
+
+```{r, eval = FALSE}
+
+my_ggplot <- my_ggplot +  
+  theme(legend.position = "bottom") +
+  labs(title = NULL) 
+
+
+```
+
+Step 3 : add the marginal boxplots using the `ggExtra`library Keep in mind that the scatter plots produce by factoextra are regular GGplots object, and thus they can be manipulated by libraries from the GGplot ecosystem such as `ggExtra`
+
+```{r}
+
+```
+
+## Marginal density
+
+Using the `factoextra` function we already used before, and the package [`ggExtra`](https://www.rdocumentation.org/packages/ggExtra/versions/0.8) reproduce the following plot :
+
+![PCA with marginal density](img/pca_marginal_density.png){fig-align="center"}
+
+To do so follow the same steps than in the previous question, but change the function you use from `ggExtra`
+
+```{r}
+
+  
+```
+
+## Interactive plot
+
+Producing interactive plots helps to explore dataset, especially big ones like the nanostring dataset we are working with. Here we will create an interactive scatter plot using the `plotly` library, colored by stimulus and with the id of the donor displayed while we fly over it's corresponding point.
+
+```{r}
+library(plotly)
+```
+
+Part 1 - Using the `plotly` library create a scatter plot of the first two component of the PCA, colored by stimulus and with interactive label giving the ID of each donor.
+
+```{r}
+
+```
+
+Part 2 - Turn it into a 3D plot by adding the third component as z axis
+
+```{r}
+
+```

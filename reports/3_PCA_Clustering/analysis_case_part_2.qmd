@@ -1,0 +1,305 @@
+---
+title: "PCA and clustering"
+subtitle: "A complete analysis case - part 2"
+format:
+  html:
+    toc: true
+    toc-location: left
+    theme: cosmo
+    reference-location: margin
+    citation-location: margin
+    grid:
+      sidebar-width: 300px
+      body-width: 900px
+      margin-width: 300px
+editor: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r general_setup, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+# Import the data and load the libraries
+
+To help reproducibility :
+
+```{r}
+set.seed(123)
+```
+
+We load the libraries we are using :
+
+```{r load_lib}
+library(tidyverse)
+library(here)
+library(readr)
+library(FactoMineR)
+library(factoextra)
+library(corrplot)
+library(ggpubr)
+library(plotly)
+library(cowplot)
+```
+
+We load the data :
+
+```{r, results=FALSE}
+
+meta_data <- readr::read_tsv(here::here('data/curated_datasets/MI_eCRF_Curated.tsv')) 
+# We extract the nanostring data 
+#ns_data <- readr::read_tsv(here::here('HKCoursesMaterials/data/curated_datasets_v2/MI_Nanostring-eCRF_Curated.tsv')) %>% dplyr::select(- dplyr::all_of(colnames(meta_data) %>% setdiff("SUBJID"))) %>% dplyr::filter(! is.na(Stimulus))
+
+ns_data <- readr::read_tsv(here::here('data/curated_datasets/MI_Nanostring-eCRF_Curated.tsv')) %>% dplyr::select(- dplyr::all_of(colnames(meta_data) %>% setdiff("SUBJID"))) %>% dplyr::filter(! is.na(Stimulus))
+
+
+```
+
+
+We recompute the PCA done in part 1
+
+```{r}
+data_for_pca <- ns_data %>%
+   dplyr::select(-dplyr::all_of(c('SUBJID','Stimulus','batch.NS','batch.TruCult'))) %>%
+   dplyr::mutate( dplyr::across(dplyr::everything(), asinh))
+
+pca_object <- data_for_pca %>%
+        FactoMineR::PCA(graph = FALSE, ncp = 10)
+
+
+```
+
+
+## Refine the clustering
+
+As we already saw in our "mosaic" PCA, we can identify a certain number of cluster corresponding to the different stimulation.
+According to the components we consider we will be more or less able to distinguish between the different stimulus.
+
+But it's hard to get the global picture, given all our components what are the stimulus that form distinct cluster ?
+
+A good way to answer this question is to apply an unsupervised clustering algorithm, this algorithm will identify for us the group of points that cluster together.
+
+There is many different clustering algorithm, kmeans is far to be the best but offers descent performance and is easy to apply.
+
+### Apply kmeans
+
+#### Step 1 : choose the number of cluster
+
+Kmeans came with one constraint : you have to provide yourself the number of cluster you expect from your data.
+To help you to define this number, the package `factoextra` provide the function [`fviz_nbclust`](https://www.rdocumentation.org/packages/factoextra/versions/1.0.7/topics/fviz_nbclust).
+
+There is different methods to define the best number of cluster, we will use the "Elbow method", this method works by computing the average distance of all the points inside a cluster this metric can be use a score to evaluate the quality (the compactness) of a cluster, the mean of all the score of each cluster is thus a way to estimate the quality of a clustering.
+
+After a certain number of cluster the quality of clustering stop signfificantly improoving, forming an "elbow".
+We will select the number of cluster just before this "elbow".
+
+```{r}
+
+# from our mosaic PCA we can suppose that only the components 1,2,3 and 5 were pertinent for the stimulus_clustering
+# we select them :
+pca_coordinates <- pca_object$ind$coord %>%
+  tibble::as_tibble() %>%
+  dplyr::select(paste0('Dim.',c(1:3,5))) 
+
+pca_coordinates %>%
+  factoextra::fviz_nbclust(kmeans, method = "wss")
+
+```
+
+We can see that the score is decreasing quickly (meaning that the quality of clustering is improving) till 5 after which the quality do not improve anymore (or even decrease .
+
+$\rightarrow$ 5 is the best number of cluster we can extract using kmean
+
+#### Step 2 : Apply kmeans
+
+```{r, results = FALSE}
+kmeans_result <- pca_coordinates %>%
+  kmeans(centers = 5, nstart = 25)
+
+```
+
+#### Step 3 : visualize the clusters :
+
+```{r}
+factoextra::fviz_cluster(kmeans_result, 
+                         data = pca_coordinates, 
+                         ellipse.type = "convex", 
+                         geom = "point") # to show only points (and not the labels) 
+```
+
+Our clustering was done on multiple components of the PCA, not just the two first components, which explains the overlap of cluster in their projection over the two first components.
+
+#### Step 4 : extract the cluster
+
+We could use the different tricks of visualization (changing the markers shape for each stimulation for example) to see in which extent the cluster obtained by the PCA are consistent with the stimulus.
+But a more straightforward solution is to directly extract the clustering and to compare it with the stimulus in a contingency table :
+
+```{r}
+
+clustering_recap_long <- table(as.factor(kmeans_result$cluster), as.factor(ns_data$Stimulus)) %>%  
+  as.data.frame() %>%
+  dplyr::mutate(Var1 = paste0('Clust_',Var1)) 
+
+clustering_recap_wide <- clustering_recap_long %>%
+  tidyr::pivot_wider(id_cols = Var1, names_from = Var2, values_from = Freq)
+
+clustering_recap_wide %>% head() %>% kableExtra::kable() %>% kableExtra::kable_styling()
+
+```
+
+We can use the `corrplot` package to make it more readable :
+
+```{r}
+clustering_recap_wide %>% 
+  tibble::column_to_rownames('Var1') %>% 
+  as.matrix() %>%
+  corrplot::corrplot(is.corr = FALSE,  addCoef.col = "black")
+
+```
+
+Our methodology allowed us to create 5 consistent clusters, at the exceptions of one they are all discriminating a specific stimulus.
+The only cluster of more than one stimulus is constituted by all the bacterial stimulus grouped together.
+
+We also note some misclassified samples, these samples are of particular interest, discussing their characteristics (if any) is an important step of any analysis.
+We can noticed few interesting fact, and propose hypothesis :
+
+-   11 samples stimulated by *IAV* ended up in the cluster capturing un-stimulated donors : these donors might be 'low responder' exhibiting a weaker response to the *IAV* stimulation (keep in mind also the kinetic aspect these donors can also have a delayed response)
+
+-   some misclassified samples are in-between the bacterial cluster and the SEB one.
+    As *SEB* is a staphylococcal toxin we can hypothesize the the S.Aureus stimulation contains trace amount of a similar toxin eliciting a similar response, bringing the two cluster together.
+
+The next logical step is to individually investigate these samples and their associated donors.
+But for time matter, and to stay in the scope of today's lesson we won't perform this analysis.
+
+# Inter-individual variability
+
+::: callout-tip
+## Let's summarize
+
+Till there, we have used the PCA to explore the response to immune stimulation.
+Dissecting the PCA components, we were able to identify the group of genes activated in response to different stimulus.
+
+In a second time we went back to the clustering refining it using kmeans on the components 1,2,3,5 that we previously identified as of interest to discriminate between the stimulus, doing so we were able to better characterized each cluster.
+
+It gave us also the opportunity to have a first dive into the inter-individual variability in the response to a given stimulus : we identified some extreme cases.
+These extreme cases, are donors with an immune response to a given stimulus atypical enough to leads to their classifications with other stimulus.
+:::
+
+We want now to go further into the study of the inter-individual variability of the immune response.
+As we saw previously the immune stimulation in our dataset have a broad effect on the measured genes, thus most of the variability in the dataset is induced by the stimulations.
+
+Despite this overwhelming effect of the stimulation we have already see some manifestation of this inter-individual variability at the scale each stimulation (the spread of each cluster) and were even able to capture some "extreme" cases (misclassified samples).
+
+## Focus on the variability in the Flu response
+
+Remember the global PCA (our first PCA, components 1 and 2) ?
+The IAV cluster (while being clearly distinct from the other clusters) was spread in a banana-like shape, which indicate a strong variability in the response to IAV (as defined by the component 1 and 2).
+we will interest ourselves to factors behind this variability.
+
+To study it we interest ourselves to these particular stimulation and (at a smaller scale) we will reproduce to step of the general analysis previously done.
+
+First let's compute our PCA on the IAV samples :
+
+```{r}
+
+# we start from scratch : we go back to the raw data
+data_pca_IAV_only <- ns_data %>%
+  # select only the unstimulated
+  dplyr::filter(Stimulus == 'IAV') 
+
+object_pca_IAV_only <-  data_pca_IAV_only %>%
+  dplyr::select(-dplyr::any_of(c('SUBJID','Stimulus','batch.NS','batch.TruCult'))) %>%
+  dplyr::mutate_all(.funs = asinh) %>%
+  # let's keep 10 (default 5) components we will refine this later
+  FactoMineR::PCA(graph = FALSE, scale.unit = FALSE, ncp = 10)
+
+```
+
+We can have a first look at the screeplot :
+
+```{r}
+object_pca_IAV_only %>% factoextra::fviz_screeplot()
+```
+
+The first dimension capture a strong part of the variability compared to the other ones, let's have a look to the first 3 components using the same mosaic PCA we did previously.
+
+```{r}
+# the number of component to consider
+n_compo <- 3
+
+#first we generate all the combination
+combination_component <- tidyr::crossing(compo_x = 1:n_compo , compo_y = 1:n_compo)
+
+plot_my_pca <- function(pca_obj, .x, .y){factoextra::fviz_pca_ind(pca_obj,axes = c(.y,.x), label = "none") + ggplot2::ggtitle('')}
+
+purrr::map2(.x = combination_component$compo_x,
+            .y = combination_component$compo_y,
+            .f = ~ plot_my_pca(object_pca_IAV_only, .x, .y)) %>%
+  ggpubr::ggarrange(plotlist = ., ncol = n_compo, nrow = n_compo, common.legend = TRUE, legend = "bottom")
+```
+
+Even if we don't observe any nice clusters, that does not mean that we don't have interesting signal.
+
+Among the biological parameters the sex and the age are obvious candidates to explains some of the differences we observe between individuals.
+We can visually check if they have an impact in the distribution of our samples projection.
+To do so we can color our PCA by different factor :
+
+```{r, fig.width=15, fig.height=15}
+# first we need the metadata to color our pca
+iav_only_w_metadata <- data_pca_IAV_only %>%
+  dplyr::select(SUBJID) %>%
+  # this way we are sure that the meta-data follow the same order than the one in the dataste used for the PCA object
+  dplyr::left_join(meta_data, by = 'SUBJID') %>%
+  dplyr::mutate(dplyr::across(dplyr::any_of(c('SUBJID','Sex','CMV','Smoking','BMI')), as.factor))
+
+
+# the number of component to consider
+n_compo <- 3
+
+#first we generate all the combination
+combination_component <- tidyr::crossing(compo_x = 1:n_compo , compo_y = 1:n_compo)
+
+plot_my_pca <- function(pca_obj, .x, .y){factoextra::fviz_pca_ind(pca_obj,axes = c(.y,.x), label = "none", habillage = iav_only_w_metadata$Sex) + ggplot2::ggtitle('')}
+
+purrr::map2(.x = combination_component$compo_x,
+            .y = combination_component$compo_y,
+            .f = ~ plot_my_pca(object_pca_IAV_only, .x, .y)) %>%
+  ggpubr::ggarrange(plotlist = ., ncol = n_compo, nrow = n_compo, common.legend = TRUE, legend = "bottom")
+
+```
+
+The components 3 seems to capture a strong sex effect !
+
+To visualize it a bit better, we can generate a boxplot comparing the score of each individual in the PC3 acording to its sex :
+
+```{r}
+# first we extract the coordinate of each individual in the PC3 from our PCA object
+sc_pc3 <- object_pca_IAV_only$ind$coord[, 3]
+
+# we combine it with our meta-data
+score_pc3_with_metadata <- data_pca_IAV_only %>% 
+  dplyr::select(SUBJID) %>%
+  dplyr::mutate(score_pc3 = sc_pc3) %>%
+  dplyr::left_join(meta_data, by = 'SUBJID')
+
+# from this dataset we can now generate proper boxplot :
+score_pc3_with_metadata %>%
+  ggplot2::ggplot(aes(x = Sex, y = score_pc3)) + 
+  geom_boxplot() + 
+  labs(title = "Boxplot of PC3 Scores by Sex", x = "Sex", y = "PC3 Scores") + 
+  theme_minimal()
+  
+  
+```
+
+We can extract the leading genes of this component :
+
+```{r}
+factoextra::fviz_contrib(pca_object, choice = 'var', axes = 5, top = 20) +
+  ggplot2::ggtitle('Top contributors of the PC3')
+
+```
+
+Next step would be to statistically validate the sex effect on the level expression of these genes in response to the Flu stimulation.
+But it's outside of the scope of this lesson : we will see this in a dedicated lesson !

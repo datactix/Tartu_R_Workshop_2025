@@ -1,0 +1,194 @@
+---
+title: "PCA and clustering"
+subtitle: "A complete analysis case - bonus"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-location: left
+    theme: cosmo
+    reference-location: margin
+    citation-location: margin
+    grid:
+      sidebar-width: 300px
+      body-width: 900px
+      margin-width: 300px
+editor: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r general_setup, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+# Import the data and load the libraries
+
+To help reproducibility :
+
+```{r}
+set.seed(123)
+```
+
+We load the libraries we are using :
+
+```{r load_lib}
+library(tidyverse)
+library(here)
+library(readr)
+library(FactoMineR)
+library(factoextra)
+library(corrplot)
+library(ggpubr)
+
+```
+
+We load the data :
+
+```{r, results=FALSE}
+
+meta_data <- readr::read_tsv(here::here('data/curated_datasets/MI_eCRF_Curated.tsv')) 
+# We extract the nanostring data 
+#ns_data <- readr::read_tsv(here::here('HKCoursesMaterials/data/curated_datasets_v2/MI_Nanostring-eCRF_Curated.tsv')) %>% dplyr::select(- dplyr::all_of(colnames(meta_data) %>% setdiff("SUBJID"))) %>% dplyr::filter(! is.na(Stimulus))
+
+ns_data <- readr::read_tsv(here::here('data/curated_datasets/MI_Nanostring-eCRF_Curated.tsv')) %>% dplyr::select(- dplyr::all_of(colnames(meta_data) %>% setdiff("SUBJID"))) %>% dplyr::filter(! is.na(Stimulus))
+
+
+```
+
+
+
+We recompute the PCA done in part 1
+
+```{r}
+data_for_pca <- ns_data %>%
+   dplyr::select(-dplyr::all_of(c('SUBJID','Stimulus','batch.NS','batch.TruCult'))) %>%
+   dplyr::mutate( dplyr::across(dplyr::everything(), asinh))
+
+pca_object <- data_for_pca %>%
+        FactoMineR::PCA(graph = FALSE, ncp = 10)
+
+
+```
+
+
+
+
+Because the clustering pattern we observe on the PCA are consistent with the underlying biology we could easily suppose that all this nice clusters are a pure reflection of the various immune pathway differentially activated in response to each stimulation.
+But such kind of large experiments is highly susceptible to include some part of technical variability, one of the most important factor to check is the batches : our dataset includes `r nrow(data_for_pca)` samples.
+This high number makes the analysis in one run impossible, we probably have diverse runs (of samples collections, preparation, analysis, reading) eventually using diverse batch of reagent.
+Knowing how the experiment was done and keeping a trace of all this step is essential while analyzing the data.
+
+In our case the experiments was done in 3 batches, we can check how the stimulus are balanced between batches :
+
+```{r, eval = FALSE}
+ns_data %>%
+    group_by(batch.NS, Stimulus) %>%
+    summarise(n_samples = n())
+  
+```
+
+Or even better visualize it :
+
+```{r, eval = FALSE}
+
+ns_data %>%
+    ggplot(aes(x = batch.NS, fill = Stimulus)) +
+    geom_bar() +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(title = "Number of samples per run", x = "Run", y = "Number of samples")
+  
+```
+
+We have a problem for *C.albicans*, *IAV* and *SEB* : this stimulus are only included in the batch 1.
+We could be worried that these stimulation form distinct cluster because of some technical variation between run rather than biological variability.
+
+This lack of randomization is common weakness in a lot of experiments design, either by mistake or because of logistical constraints.
+Even if methods exists to deal with this issues (in most cases), the best is to minimize the technical variability (or, if not possible, to prepare control strategy to estimate/correct for it) as much as possible at the experiment design step.
+
+The PCA is an easy way to have a first check on the impact of this putative batch effect.
+We can start by coloring our previous mosaic PCA plot using the batches information rather than the stimulation :
+
+```{r, fig.height = 20, fig.width = 20, eval = FALSE}
+# the number of component to consider
+n_compo <- 5
+
+#first we generate all the combination
+combination_component <- tidyr::crossing(compo_x = 1:n_compo , compo_y = 1:n_compo)
+
+plot_my_pca <- function(pca_obj, .x, .y){factoextra::fviz_pca_ind(pca_obj,axes = c(.y,.x), label = "none", habillage = as.factor(ns_data$batch.NS)) + ggplot2::ggtitle('')}
+
+purrr::map2(.x = combination_component$compo_x,
+            .y = combination_component$compo_y,
+            .f = ~ plot_my_pca(pca_object, .x, .y)) %>%
+  ggpubr::ggarrange(plotlist = ., ncol = n_compo, nrow = n_compo, common.legend = TRUE, legend = "bottom")
+
+
+```
+
+We don't see any cluster with a clear separation induced by the batch, but this PCA is probably not the best choice to check for this.
+We can rather focus on stimulation that were well balanced between the batches.
+A good pick would be to check *NS* and *E.Coli*, we can expect to have genes with lower level of expression for the *NS* and others, responding to *E.Coli* presenting high level of expression.
+
+```{r, results=FALSE}
+
+# We start from the raw data, in order to keep consistency between our data and the Stimulus / Batch columns
+# we filter the data to keep only the Stimulus we are interested in :
+null_ecoli_data <- ns_data %>%
+  dplyr::filter(Stimulus %in% c('Null', 'E.coli'))
+
+null_ecoli_pca <- null_ecoli_data %>%
+  dplyr::select(-dplyr::all_of(c('SUBJID','Stimulus','batch.NS','batch.TruCult'))) %>%
+  dplyr::mutate(dplyr::across(dplyr::everything(), asinh)) %>%
+  FactoMineR::PCA(graph = FALSE, scale.unit = FALSE, ncp = 10)
+
+
+```
+
+::: panel-tabset
+## Component 1 / 2
+
+```{r}
+
+plot_null_ecoli_pca_col_stim <- null_ecoli_pca %>%
+  factoextra::fviz_pca_ind(axes = c(1,2),  label = "none", habillage = as.factor(null_ecoli_data$Stimulus))
+
+plot_null_ecoli_pca_col_batch <- null_ecoli_pca %>%
+  factoextra::fviz_pca_ind(axes = c(1,2), label = "none", habillage = as.factor(null_ecoli_data$batch.NS))
+
+ggpubr::ggarrange(plotlist = list(plot_null_ecoli_pca_col_stim, plot_null_ecoli_pca_col_batch), ncol = 2, nrow = 1, legend = "bottom")
+```
+
+## Component 3 / 4
+
+```{r}
+
+plot_null_ecoli_pca_col_stim <- null_ecoli_pca %>%
+  factoextra::fviz_pca_ind(axes = c(3,4),  label = "none", habillage = as.factor(null_ecoli_data$Stimulus))
+
+plot_null_ecoli_pca_col_batch <- null_ecoli_pca %>%
+  factoextra::fviz_pca_ind(axes = c(3,4), label = "none", habillage = as.factor(null_ecoli_data$batch.NS))
+
+ggpubr::ggarrange(plotlist = list(plot_null_ecoli_pca_col_stim, plot_null_ecoli_pca_col_batch), ncol = 2, nrow = 1, legend = "bottom")
+```
+
+## Component 5 / 6
+
+```{r}
+
+plot_null_ecoli_pca_col_stim <- null_ecoli_pca %>%
+  factoextra::fviz_pca_ind(axes = c(5,6),  label = "none", habillage = as.factor(null_ecoli_data$Stimulus))
+
+plot_null_ecoli_pca_col_batch <- null_ecoli_pca %>%
+  factoextra::fviz_pca_ind(axes = c(5,6), label = "none", habillage = as.factor(null_ecoli_data$batch.NS))
+
+ggpubr::ggarrange(plotlist = list(plot_null_ecoli_pca_col_stim, plot_null_ecoli_pca_col_batch), ncol = 2, nrow = 1, legend = "bottom")
+```
+:::
+
+We did not capture any visible batch effects on any of the components\[\^longnote_2\].
+To be sure of the absence of batch effects more in depth analysis is needed, but the statistical tools to use for this are not in the scope of the today's lesson.
+
+\[\^longnote_2\] This dataset is actually not the raw dataset, some pre-treatment was already done on it to correct the batch effects.
+This first quality control / data integration step can be extremely time and effort consuming (keep this in mind while planning your project timeline).

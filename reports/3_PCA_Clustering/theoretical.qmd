@@ -1,0 +1,97 @@
+---
+title: "PCA and clusterisation"
+format: revealjs
+editor: visual
+---
+
+```{r, echo = F}
+# Data manipulation
+library(tidyverse)
+# number of patients to simulate
+nb_patients_gp1 <- 50
+
+# we consider that we have normalized expression with mean=0
+cytokine_means_gp1 <- c(cytokine_1 = 0, cytokine_2 = 0, cytokine_3 = 0, cytokine_4 = 0, cytokine_5=0)
+# we build a covariance matrix to describe the correlation structure between the variables
+cytokine_covariance_mtx_gp1 <- matrix(c(1.0, 0.8, 0.9, 0.1, 0.1,
+                                        0.8, 1.0, 0.8, 0.1, 0.1,
+                                        0.9, 0.8, 1.0, 0.1, 0.1,
+                                        0.1, 0.1, 0.1, 1.0, 0.9,
+                                        0.1, 0.1, 0.1, 0.9, 1.0), nrow = 5)
+
+# build a tibble data.frame with subject_id and group_id
+synth_data_g1 <- tibble(subject_id = paste0("SUBJ",1:nb_patients_gp1),
+                     group_id = "group_1") |> 
+  # add columns related to cytokine expressions 
+  dplyr::bind_cols(as_tibble(MASS::mvrnorm(n = nb_patients_gp1,
+                                          mu = cytokine_means_gp1, 
+                                          Sigma = cytokine_covariance_mtx_gp1)))
+
+
+
+# we build a covariance matrix to describe the correlation structure between the variables
+cytokine_covariance_mtx_gp2 <- qr.Q(qr(matrix(rnorm(25), 5))) %>% {crossprod(., .*(5:1))}
+
+# build a tibble data.frame with subject_id and group_id
+synth_data <- tibble(subject_id = paste0("SUBJ",1:nb_patients_gp1),
+                     group_id = "group_2") |> 
+  # add columns related to cytokine expressions 
+  dplyr::bind_cols(as_tibble(MASS::mvrnorm(n = nb_patients_gp1,
+                                          mu = cytokine_means_gp1, 
+                                          Sigma = cytokine_covariance_mtx_gp2))) %>%
+  dplyr::bind_rows(synth_data_g1,.)
+
+
+synth_data_with_na <- synth_data %>% 
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ifelse(runif(n()) < 0.55, NA, .)))
+```
+
+## Some context
+
+![data analysis overview](img/theory/data_analysis_0.png)
+
+## Some context
+
+![data analysis overview](img/theory/data_analysis_1.png)
+
+## Some context
+
+![data analysis overview 2 - focus on exploration](img/theory/data_analysis_2.png)
+
+## The need for dimensionality reduction
+
+::::: columns
+::: {.column width="50%"}
+You can change colors of the points, their size and shape. But you will quickly reach a limit : human can only deal with a handful of dimensions simultaneously.
+:::
+
+::: {.column width="70%"}
+```{r}
+synth_data %>% plotly::plot_ly(x = ~cytokine_1, y = ~cytokine_2, z = ~cytokine_3, color =  ~cytokine_4)
+```
+:::
+:::::
+
+## How to interprete a PCA
+
+From a heatmap to a PCA Notion of cluster
+
+## How to build a PCA : an overview of the algorithm
+
+## PCA lexicon :
+
+-   Components
+-   Loading
+-   Eigenvalue
+-   cos2
+
+## technical question around the PCA
+
+-   handling of missing values
+-   Data transformation
+-   Nb of components to keep
+
+## limitation of the PCA
+
+-   linear relationships
+-   only numerical variables

@@ -1,0 +1,694 @@
+---
+title: "Null Hypothesis Statistical Testing & Linear Models"
+subtitle: "Some theory and visualization of concepts"
+format: 
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    toc-title: "Table of content"
+editor: visual
+---
+
+# Set up
+
+## Set Quarto up
+
+<details>
+
+<summary>Show quarto set up</summary>
+
+```{r setup}
+# No warnings or supplementary message in the html
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+</details>
+
+## Load useful packages
+
+<details>
+
+<summary>Show loaded packages</summary>
+
+```{r}
+# Data manipulation
+library(tidyverse)
+
+# Visualization
+library(ggplot2)
+library(ggsignif)
+
+# Modeling 
+library(limma)
+```
+
+</details>
+
+## Generation of simulated data
+
+<details>
+
+<summary>Show data generation</summary>
+
+```{r}
+set.seed(9876)
+# Number of samples
+n <- 50
+
+# mean temperature
+mean_temp_female <- 37.1 # Slighty higher than 37
+mean_temp_male <- 36.9 # Slighty lower than 37
+
+# Determines random number of male and females with tot = n
+n_female <- sum(rbinom(n = n, size = 1, p = 0.5))
+n_male <- n - n_female
+
+# Determines number of smokers
+n_smokers_female <- floor(.20 * n_female)
+n_nonsmokers_female <- n_female - n_smokers_female
+
+n_smokers_male <- floor(.60 * n_male)
+n_nonsmokers_male <- n_male - n_smokers_male
+
+# Generate fake data set
+data <- data.frame(# Simulate different proportions of male and females
+                   Sex = c(rep("Female", times = n_female), 
+                           rep("Male", times = n_male)),
+                   Smoking = c(rep("Smoker", times = n_smokers_female), 
+                               rep("Non Smoker", times = n_nonsmokers_female), 
+                               rep("Smoker", times = n_smokers_male), 
+                               rep("Non Smoker", times = n_nonsmokers_male)
+                               ), 
+                   # Simulate temperatute data mu_male < mu_female
+                   Temperature = c(rnorm(n_female, mean = mean_temp_female, sd = .5),
+                                   rnorm(n_male, mean = mean_temp_male, sd = .5)), 
+                   # Simulate a numeric variable called cytokine 
+                   # (no normal distribution)
+                   # Cytokine = c(rgamma(n_female, shape = 9, rate = .5), 
+                   #                     rgamma(n_male, shape = 1, rate = 2)), 
+                    Cytokine = c(rgamma(n_female, shape = 9, rate = 1.5), 
+                                       rgamma(n_male, shape = 2, rate = 2)), 
+                   # Simulate gene expression data
+                   Gene1 = rnorm(n = 50, mean = 6, sd = 1), 
+                   Gene2 = c(rnorm(n = 25, mean = 7, sd = 1), 
+                             rnorm(n = 25, mean = 3, sd = 1)), 
+                   Gene3 = c(rnorm(n = 25, mean = 3, sd = .5),
+                             rnorm(n = 25, mean = 8, sd = .5))
+                   ) %>% 
+                   mutate(AbQt = log(exp((Gene2 - 6) / 2) + rnorm(50, mean = 0, sd = 1.7) + 2
+                                     )
+                          )
+data$Age <- sample(seq(25,50,1), size = 50, replace = T)
+
+# Add a gene that is Age dependent with interaction effect on sex
+data <- data %>% 
+          mutate(Gene4 = ifelse(Sex == "Male", 
+                                2 * Age + rnorm(50, mean = 0, sd = 5), 
+                                0.5 * Age + rnorm(50, mean = 0, sd = 5) + 40)) %>% 
+          relocate(Gene4, .after = Gene3)
+
+# Add a 3 factor "Condition" to illustrate the ANOVA
+data <- data %>% 
+        mutate(Condition = ifelse(Gene1 > 7, 
+                                  sample(c("Asymptomatic", "Mild", "Severe"), 
+                                         size = 50, replace = T, prob = c(0.7, 0.2, 0.1)),
+                                  sample(c("Asymptomatic", "Mild", "Severe"), 
+                                  size = 50, replace = T, prob = c(0.1, 0.4, 0.5))
+                                  )
+               )
+
+# Create a paired data set for paired t.test
+data.paired <- tibble(
+                      id = rep(1:30, each = 2), 
+                      Timepoint = rep(c("T0", "T1"), each = 30),
+                      response = c(
+                        rnorm(30, mean = 50, sd = 7), 
+                        rnorm(30, mean = 60, sd = 7)  )
+                      )
+data.paired <- data.paired[sample(rownames(data.paired), size = 60, replace = F), ]
+
+head(data)
+```
+
+</details>
+
+# 1. Null Hypothesis and Statistical Testing (NHST)
+
+When it comes to a scientific question, we are usually interested in quantifying some parameters of some variables. For example, we want to know the body temperature of a set of humans or mice. However, the total population is usually too big. If we want to compare the body temperature between males and females, we cannot get that information for every humans on Earth. Instead, we do what is called sampling. We get a subset of the population and study the parameter on this subset. For example we measure the mean of body temperature on our samples. But can we know if the estimated mean on our subset is close enough to the actual **true** mean of the global population?
+
+Similarly, if we want to compare this parameter to another variable, for example compare the mean of body temperature between sex, how can we know that the difference is not due to sampling fluctuations but due to different conditions?
+
+In this section, you will see how you can quantify the **confidence** you can have on your **estimated** **parameters** and how to compare them**.**
+
+## 1.1 Confidence Intervals
+
+### 1.1.1 Principle
+
+When you estimate a parameter you want to know if the estimation is likely to be close to the actual true value. A confidence interval (CI) is an interval that is supposed to contain the true value of the parameter we want to estimate - **with a certain level of confidence.** If we retake the example of the mean body temperature, if we get the confidence interval at a level of 95%, then there is a probability of 95% that the **true mean** of human body temperature is in that interval.
+
+*Easy trap* : it does **NOT** mean that 95% of the values of my observation are located in that interval !!!
+
+### 1.1.2 How are confidence interval built?
+
+#### Some reminders and notations
+
+-   $n$ : the number of samples
+
+-   $\bar{X} = \frac{1}{n} \displaystyle \sum_{i = 1}^{n} x_i$: the empiric mean of the samples
+
+-   $\mu$ : the true mean of the population
+
+-   $\sigma^2$ : the variance
+
+-   $\sigma~(=\sqrt{\sigma^2})$ : the standard deviation
+
+We're not going to details all the theory behind it but there is a key mathematical principle that should be mentioned: the **central limit theorem**. This theorem basically tells that if we have a large enough amount of samples, the empiric mean of the subset population follows a normal distribution.
+
+$$
+\frac{\bar{X} - \mu}{\sigma / \sqrt{n}} \sim \mathcal{N}(0,1)
+$$
+
+Given a level of confidence $1-\alpha$, we know that $\mathbb{P}\left(u_{\alpha/2} \leq \frac{\bar{X} - \mu}{\sigma / \sqrt{n}} \leq u_{1-\alpha/2} \right) = 1-\alpha$
+
+So, the CI of the mean at a level of confidence $1-\alpha$ is $IC_{1-\alpha}(\mu) = \left[\bar{X} + u_{\alpha /2} \frac{\sigma}{\sqrt{n}} ; \bar{X} + u_{1 - \alpha/2} \frac{\sigma}{\sqrt{n}}\right]$.
+
+*N.B.* Note that the normal distribution is symmetrical. There fore we have $u_{\alpha/2} = - u_{1-\alpha/2}$. Thus, the confidence interval at a level $1-\alpha$ of the mean can be also written as :
+
+$$IC_{1-\alpha}(\mu) = \left[\bar{X} - u_{1 - \alpha /2} \frac{\sigma}{\sqrt{n}} ; \bar{X} + u_{1 - \alpha/2} \frac{\sigma}{\sqrt{n}}\right] = \left[\bar{X} + u_{\alpha /2} \frac{\sigma}{\sqrt{n}} ; \bar{X} - u_{\alpha/2} \frac{\sigma}{\sqrt{n}}\right]$$
+
+Note that here the central limit theorem doesn't assume anything on the distribution of your data. Regardless of the distribution, if $n$ is big enough, then the empiric mean of your sample follows a normal distribution. There is no non-arbitrary threshold to tell if $n$ is big enough or not. Typically, $n > 30$. In the case where $n < 30$, it's a bit trickier:
+
+-   If your data are normally distributed then you can use the same formula by replacing the quantiles of the normal distribution by the one of the Student's distribution with a degree of freedom $n-1$: $IC_{1-\alpha}(\mu) = \left[\bar{X} + t_{n-1, \alpha /2} \frac{\sigma}{\sqrt{n}} ; \bar{X} + u_{n-1, 1 - \alpha/2} \frac{\sigma}{\sqrt{n}}\right]$. Note that when $n \rightarrow \infty$, $t_{n-1} \sim \mathcal{N}(0,1)$ and we get the same result when we have enough samples.
+
+-   If your data are not normally distributed, use bootstrap (<https://www.geeksforgeeks.org/bootstrap-confidence-interval-with-r-programming/>).
+
+Similarly, a proportion can be seen as the mean of a Bernoulli variable. Thus the confidence interaval at a level of $1-\alpha$ of a proportion is $IC_{1-\alpha}(p) = \left[\hat{p} + u_{\alpha /2} \sqrt{\frac{\hat{p}(1-\hat{p})}{n}} ; \hat{p} + u_{1 - \alpha/2} \sqrt{\frac{\hat{p}(1-\hat{p})}{n}}\right]$.
+
+Note that you can compute a confidence interval for every parameter. Here is the CI formula of the variance : $IC_{1-\alpha}(\sigma^2) = \left[\frac{(n-1)s^2}{a};\frac{(n-1)s^2}{b}\right]$ where $a = \chi^2_{1-\alpha/2, n-1}$ and $b = \chi^2_{\alpha/2, n-1}$ are the quantiles of the $\chi^2_{n-1}$ distribution.
+
+## 1.2 Null Hypothesis and Statistical Testing
+
+### What is a statistical test?
+
+A statistical test (or hypothesis test) is process to choose between **two** hypothesis. This process consists to reject (or not) an statistical hypothesis (called Null Hypothesis or $H_0$) based on the data.
+
+The null hypothesis $H_0$ is the one that we consider *a priori* true. To reject this hypothesis we need to "get enough" proof. This means to get a distribution more extreme to what we are expecting if we consider that $H_0$ is true. The alternative hypothesis (also called $H_1$ or $H_A$) is the **complementary** to $H_0$. It's the one that we choose in case of rejection of $H_0$.
+
+It is very important to note that $H_0$ and $H_A$ must not have a common ground. For example when we compare means between 2 groups of individuals (A and B) we have the following hypothesis:
+
+-   $H_0$ : $\mu_A = \mu_B$
+
+-   $H_A : \mu_A \neq \mu_B$
+
+In no case we could have $H_A : \mu_A \geq \mu_B$ because $H_0$ is included in $H_A$.
+
+When a statistical test is performed, it computes the probability of observing our data given that $H_0$ is true. This probability is what we called the $p$-value. Given a level of confidence $1-\alpha$ , we reject $H_0$ if the $p$-value is lower than $\alpha$, and therefore consider that $H_A$ is true. Typically, we take $\alpha = 0.05~(5\%)$.
+
+**N.B. Not rejecting** $H_0$ **does not mean that** $H_0$ **is true** !!! We just don't have enough evidence to reject it.
+
+This section is not an exhaustive list of all the statistical tests (there are too many of them) but we will cover the most common ones.
+
+### Comparison of quantitative variable between 2 groups
+
+```{r, echo = F}
+data %>% 
+  ggplot(aes(x = Sex, y = Temperature, fill = Sex)) +
+  geom_boxplot() + 
+  geom_jitter() +
+  theme_minimal()
+```
+
+When comparing a quantitative variable between 2 groups/categories (e.g. sex, treatment/control, seropositive/negative, two time points...), an intuition would be to compare a parameter related to the quantitative variable between groups. For example comparing the mean, the median or the variance. The most common way is to compare the mean. In this quarto we give some recipes to perform tests to compare the mean between 2 groups while using the tidy syntaxe.
+
+### 1.2.1 Student's $t$-test
+
+In the Student's $t$-test, we consider the following hypothesis:
+
+-   $H_0$ : $\mu_A = \mu_B$
+
+-   $H_A : \mu_A \neq \mu_B$ (two sided)
+
+If needed the test can be one sided and the alternative hypothesis will be either $H_A : \mu_A > \mu_B$ (greater) or $H_A : \mu_A < \mu_B$ (less).
+
+Before applying a $t$-test, there are some assumptions to check on your data:
+
+-   Your data should be normally distributed
+
+-   Independance of samples (unpaired test)
+
+In some cases in biology, the samples are not independent between groups. For example if you quantify the response of patients to a treatment at 2 different time points. You have the same samples at $T_0$ and $T_1$, a classic $t$-test cannot be applied here, you need to take into account the relationship of the samples between groups. For that you should use a paired $t$-test.
+
+*Some theory*
+
+The statistic of the $t$-test to compare means between 2 groups ($A$ and $B$) is given by:
+
+$$
+S = \frac{\bar{X}_A - \bar{X}_B}{\sqrt{\frac{\bar{\sigma}_A^2}{n_A} + \frac{\bar{\sigma}_B^2}{n_B} }} \sim \mathcal{T}_{n-2}
+$$
+
+The $p$-value then depends of the value of the statistic $S$ and corresponds to the shaded area under the curve starting from $S$ as showed in the following figure.
+
+```{r, echo = F}
+# Student's distribution parameters
+df <- 5 # Degrees of freedom
+
+# Define x to tstart the area to fill under the curve
+x_fill_start <- qt(.95, df)
+# x_fill_start <- qt(.05, df) # = -qt(.95, df)
+
+# Create a sequence of values to plot the t-distirbution on 
+x_vals <- seq(-4, 4, length.out = 1000)
+y_vals <- dt(x_vals, df = df)
+
+# Create a table to plot it using ggplot
+tdat <- data.frame(x = x_vals, y = y_vals)
+
+# Plot the distribution
+plt1 <- ggplot(tdat, aes(x = x, y = y)) +
+            geom_line(color = "blue", size = 1) +  # t-distrib 
+            geom_area(data = subset(tdat, x >= x_fill_start), 
+                      aes(x = x, y = y), fill = "darkolivegreen3",
+                      alpha = 0.5) +  # Fill the area starting from x_start
+            labs(title = "Student's distribution - one sided test (greater)",
+                 x = "x",
+                 y = "Density") +
+            theme_minimal() +
+            ylim(-.05, .5) +
+            annotate("text", x = x_fill_start, y = -0.02, 
+                     label = "S", vjust = 1.5, color = "red", size = 5) # Add label for S
+
+plt2 <- ggplot(tdat, aes(x = x, y = y)) +
+            geom_line(color = "blue", size = 1) + 
+            geom_area(data = subset(tdat, x <= -x_fill_start), aes(x = x, y = y), 
+                      fill = "darkorange3", alpha = 0.5) +  
+            labs(title = "Student's distribution - one sided test (less)",
+                 x = "x",
+                 y = "Density") +
+            theme_minimal() +
+            ylim(-.05, .5) +
+            annotate("text", x = -x_fill_start, y = -0.02, 
+                     label = "S", vjust = 1.5, color = "red", size = 5)
+
+x_fill <- qt(.975, df)
+
+plt3 <- ggplot(tdat, aes(x = x, y = y)) +
+            geom_line(color = "blue", size = 1) + 
+            geom_area(data = subset(tdat, x <= -x_fill), aes(x = x, y = y), 
+                      fill = "skyblue", alpha = 0.5) +
+            geom_area(data = subset(tdat, x >= x_fill), aes(x = x, y = y), 
+                      fill = "skyblue", alpha = 0.5) +
+            labs(title = "Student's distribution - two sided test",
+                 x = "x",
+                 y = "Density") +
+            theme_minimal() +
+            ylim(-.05, .5) +
+            annotate("text", x = -x_fill, y = -0.02, label = "S", 
+                     vjust = 1.5, color = "red", size = 5) + 
+            annotate("text", x = x_fill, y = -0.02, label = "S",
+                     vjust = 1.5, color = "red", size = 5)
+
+print(plt1)
+print(plt2)
+print(plt3)
+
+```
+
+#### (b) Check for normality
+
+**Note that the Student's** $t$**-test relies on some hypothesis of the data!\
+**Especially, this test assumes that your data are normally distributed. In practice it's very rare to have normally distributed data and this test is still applicable on data that are "not too far" from a Gaussian distribution.
+
+What does "not too far" mean? Well a distribution that is not "too" skewed, not multi-modal (where you can see several obvious peaks) and that has a shape that overall looks like a Gaussian curve.
+
+A nice way of visualizing if your data approximately follows a normal distribution is to use Quantile-Quantile plot. This kind of plot compares the quantiles of your data to the quantiles of the theoretical normal distribution. You can easily visualize a QQ-plot using the function `ggqqplot` from the `ggpubr` library.
+
+Here is an example on our Temperature data.
+
+```{r, echo = F}
+library(ggpubr)
+
+data %>% 
+  pull(Temperature) %>% 
+  ggqqplot()
+```
+
+How do we do when the data do not follow a normal-like distribution? We go for non-parametric tests.
+
+Example of the variable `Cytokine` in the data that was generated using the gamma distribution.
+
+```{r, echo = F}
+data %>% 
+  pull(Cytokine) %>% 
+  ggqqplot()
+
+data %>% 
+  ggplot(aes(x = Cytokine)) +
+  geom_density(alpha = .4, fill = "blue") +
+  theme_bw() + 
+  xlab("Cytokine") + 
+  ylab("Density")
+```
+
+### 1.2.2 Wilcoxon-Mann-Whitney signed rank test.
+
+The Wilcoxon-Mann-Whitney signed rank test (or just Wilcoxon test, or Mann-Whitney test or Signed-Rank test) is a non-parametric version of the $t$-test. This test allows to compare the distribution of a quantitative variable between 2 groups.
+
+Even if the data do not need to follow a normal distribution, this test still requires some assumptions on the data:
+
+-   All the observations from both groups are independent of each other (same as $t$-test, a paired version exists).
+
+-   The response variable is *at least* ordinal. (You take two values, you can always say which one is greater/lower).
+
+-   Few, if possible none, *ex aequo.* (This test does not work well on counts variables)
+
+##### Principle
+
+Instead of using using the direct value of the quantitative variable, the test ranks the values from the lowest to the highest. From this rank, it computes a statistic that follows a normal distribution (for a large enough amount of samples) from which a $p$-value can be computed.
+
+Even if this test is designed to be performed on non-normal distributed data, it also works on normally distributed data (with a lower statistical power than the $t$-test though).
+
+We show here an example on the cytokine in the generated data. These data *a priori* do not follow a normal distribution. For that we use the function `wilcox.test` that has a similar structure as `t.test`.
+
+### 1.2.3 Multiple Testing
+
+In the previous sections a $t$-test or a Wilcoxon test were applied to a given variable. Applying a test on a single variable returns a $p$-value which basically corresponds to the probability of wrongly reject $H_0$. This is the type $I$ error.
+
+| Null Hypothesis | True | False |
+|:---|---:|---:|
+| Reject | Type $I$ Error ($\alpha$) | Correct decision (Power) |
+| Fail to reject | Correct Decision | Type $II$ Error ($\beta = 1 - Power$) |
+
+So, if we consider a threshold of 5% ($\alpha = 0.05$) to reject $H_0$, then the probability of wrongly rejecting $H_0$ is $\mathbb{P}(Type~I~Error) = \alpha = 0.05$. Thus, the probability of not getting a type $I$ error (we call this event $A$) is $\mathbb{P} = 1 - \mathbb{P}(Type~I~Error) = 1 - \alpha = 0.95$.
+
+Yet, sometimes there is a need to apply the same statistical test to a higher number of variables. For example in differential expression analysis, the same statistical test is applied across all the genes to compare to the explanatory variables. Let $k$ be the number of tests to perform (the number of genes, cells, proteins, whatever...). Then, the probability of not getting at **at least one** type $I$ error is $\mathbb{P}(A_1 \cap A_2 \cap ... \cap A_k) = \mathbb{P}(A_1) \times \mathbb{P}(A_2) \times ... \times \mathbb{P}(A_k) = (1 - \alpha)^k$.
+
+Here is a visualization of the evolution of probability of not getting at least one type $I$ error with the number of tests.
+
+```{r, echo = F}
+data.frame(ntest = 1:100) %>% 
+mutate(proba = (1-0.05)^ntest) %>% 
+ggplot(aes(x = ntest, y = proba)) +
+geom_line() + 
+geom_hline(yintercept = c(1, .5), linetype = c("dashed", "dotted"), color = c("darkred", "red")) +
+theme_bw() + 
+xlab("Number of tests") + 
+ylab("P(A)")
+```
+
+There is then a need to correct or **adjust** the $p$-values and take into account the number of test performs to avoid getting more false positive than what we expect. The main methods are:
+
+-   Bonferroni : very simple correction method that modify the threshold $\alpha$ to reject $H_0$ according to the number of performed tests. But higher risk of type $II$ error.
+
+-   Benjamini-Hochberg (FDR): Most common one that directly modifies the $p$-values.
+
+Here is an example to apply a Wilcoxon test across all the genes in our simulated data frame to compare Gene Expression and Sex. Then, we adjust the $p$-values. We are using the *tidy* approach using `map_dfr` from the `purrr` package to apply the analysis across selection of variables of the data frame. We are also using the `tidy` function from the `broom` package to clean the results of the output of the statistical tests functions (here `wilcox.test`)
+
+Later in this quarto, you will see how to perform statistical testings to compare a quantitative variable to a qualitative variable with more than 2 factors.
+
+### Comparison of quantitative variables to a categorical variable with more than 2 factors
+
+```{r, echo = F}
+data %>% 
+  ggplot(aes(x = Condition, y = Gene1, fill = Condition)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_fill_manual(values = c("Asymptomatic" = "#08C5D1", 
+                               "Mild" = "#FFBF66", 
+                               "Severe" = "#D46F4D")) +
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+In the previous section, you have seen how to compare two distinct groups for a given variable. But what happens when you have more than 2 groups? For example in your experiment, instead of having Healthy/Disease, you have 3 groups Asymptomatic, Mild and Severe. Can you apply a $t$-test to compare them all together? The intuition would be to perform a pairwise comparison by applying a $t$-test to compare Asymptomatic-Mild, then another to compare Asymptomatic-Severe and finally a test to compare Mild and Severe. Actually the number of tests to perform for a pairwise comparison increases quadratically with the number of groups $\left(\frac{n(n-1)}{2}\right)$. Therefore, there is a higher risk of type I error.
+
+```{r, echo = F}
+data.frame(nfactor = 1:12) %>% 
+  mutate(ntest = nfactor * (nfactor - 1) / 2) %>% 
+  ggplot(aes(x = nfactor, y = ntest)) +
+  geom_point() + 
+  geom_line() +
+  scale_x_continuous(breaks = seq(1, 12, 1))+
+  theme_bw() + 
+  xlab("Number of factors") +
+  ylab("Number of tests to perform")
+```
+
+### 1.2.4 One Way ANOVA
+
+One of the tools to perform a test on several groups at the same time is the ANOVA (ANalysis Of VAriance). The analysis of **variance** compares **means**...
+
+*Briefly, some theory elements:*
+
+-   The expression of a gene for the sample $j$ in the group $i$ ($Y_{ij}$) can be decomposed as such: $$ Y_{ij} = \mu + \alpha_{i} + \varepsilon_{ij} $$, where $\mu$ is the overall mean across all groups, $\alpha_i$ is the effect of condition $i$ on $Y$ and $\varepsilon_{ij}$ is sample variability. The goal of the anova is to estimate these $\alpha$ and test whether they are equal to 0.
+
+-   In terms of statistical testing we're interested in the question of equality of the means across all the groups
+
+    -   $H_0$ : the means of all the group is equal. $\forall~i, j~s.t.~i \neq j~;~\mu_i = \mu_j$
+
+    -   $H_A$ : at least one group with a mean different from another. $\exists~i,j~s.t. \mu_i \neq \mu_j$
+
+-   The ANOVA relies on key assumptions:
+
+    -   The independence of samples (which mean it **cannot be used for paired analysis**)
+
+    -   The normality of the residuals ($\varepsilon \sim \mathcal{N} (0, \sigma^2)$)
+
+    -   The homoscedasticity (i.e. stability of variance) between groups.
+
+The take home messages from the anova are the null hypothesis, the key assumptions and that it compares means between groups!
+
+```{r, echo = F}
+library(latex2exp)
+
+mu_as <- data %>% 
+          filter(Condition == "Asymptomatic") %>% 
+          pull(Gene1) %>% mean()
+mu_mild <- data %>% 
+          filter(Condition == "Mild") %>% 
+          pull(Gene1) %>% mean()
+mu_sev <- data %>% 
+          filter(Condition == "Severe") %>% 
+          pull(Gene1) %>% mean()
+
+data %>% 
+  ggplot(aes(x = Condition, y = Gene1, fill = Condition)) +
+  geom_boxplot() +
+  geom_jitter() +
+  geom_hline(yintercept = mu_as, color = "#08C5D1", linetype = "dashed" ) +
+  geom_segment(
+    aes(x = 2, xend = 2, y = mu_as, yend = mu_mild),
+    arrow = arrow(length = unit(0.2, "cm")), color = "blue"
+  ) +
+  geom_segment(
+    aes(x = 1.7, xend = 2.3, y = mu_mild, yend = mu_mild),
+    linetype = "dotted", color = "blue"
+  ) +
+  annotate("text", x = 1.6, y = mu_mild, 
+           label = TeX(r'($\mu_{Mild}$)'), color = "blue") +
+  annotate("text", x = 1.9, y = (mu_as + mu_mild) / 2, 
+           label = TeX(r'($\alpha_{Mild}$)'), color = "blue", vjust = -1) +
+  geom_segment(
+    aes(x = 3, xend = 3, y = mu_as, yend = mu_sev),
+    arrow = arrow(length = unit(0.2, "cm")), color = "chartreuse3"
+  ) +
+  geom_segment(
+    aes(x = 2.7, xend = 3.3, y = mu_sev, yend = mu_sev),
+    linetype = "dotted", color = "chartreuse3"
+  ) +
+  annotate("text", x = 2.9, y = 6, 
+           label = TeX(r'($\alpha_{Severe}$)'), color = "chartreuse3", vjust = -1) +
+  annotate("text", x = 2.6, y = mu_sev, 
+           label = TeX(r'($\mu_{Severe}$)'), color = "chartreuse3") +
+  scale_fill_manual(values = c("Asymptomatic" = "#08C5D1", 
+                               "Mild" = "#FFBF66", 
+                               "Severe" = "#D46F4D")) +
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+### 1.2.5 Kruskall-Wallis test
+
+The Kruskall-Wallis test is a non parametric version of the One-Way ANOVA.
+
+### Comparison of qualitative variables
+
+To compare qualitative variables, we can use these qualitative variables and compute proportions and compare them to expected proportions.
+
+### 1.2.6 Proportion test
+
+This test can be used to compare the proportion of your observations ($p$) to a theoretical proportion ($p_0$).
+
+Therefore the hypothesis of this test is :
+
+-   $H_0$ : $p = p_0$
+
+-   $H_A$ : $p \neq p_0$
+
+This is for the two sided test, obviously you can change alternative hypothesis for the one sided tests.
+
+### 1.2.7 $\chi^2$ contingency table test
+
+The proportion test is used here to compare a given categorical variable to a given proportion. However in some cases we want to compare two qualitative variables. For example with our data set we want to compare the smoking variable with sex. We want to see if the distribution of smokers is the same between males and females in our cohort. For that we are going to use a $\chi^2$ contingency table test. The first step of this test is to build a contingency table. This can be easily done using the function `table` from the base functions of R.
+
+| Variable | Non Smoker | Smoker |
+|:---------|-----------:|-------:|
+| Female   |         16 |      4 |
+| Male     |         12 |     18 |
+
+For a $\chi^2$ contingency table test we consider the following hypothesis:
+
+-   $H_0$ : The distribution of smoker and non smoker is the same or male and female.
+
+-   $H_1$ : The distribution of smoker and non smoker **is not** the same or male and female.
+
+To perform this test, we need to compute the **expected** ($E$) values of the distribution and compare them to the **observed** ($O$) values.
+
+| Variable  | Non Smoker | Smoker | Total |
+|:----------|:----------:|:------:|------:|
+| Female    |     16     |   4    |    20 |
+| Male      |     12     |   18   |    30 |
+| **Total** |     28     |   22   |    50 |
+
+Typically the expected values of female smoker is $E_{female, smoker} = \frac{ 20 \times 22}{50} =  8.8$ .
+
+From this expected/observed values we can compute a statistic:
+
+$$
+T = \sum_{i,j} \frac{(O_{ij} - E_{ij})^2}{E_{ij}} \sim \chi^2_{(I-1)(J-1)}
+$$
+
+where $I$ and $J$ are the number of factors for each variable.
+
+# 2. Linear models
+
+Given a dependent variable $y$ and $\{ x_1, x_2, ..., x_p \}$ a set of explanatory variables, the linear regression assumes that the relationship between $y$ and the set of $\{ x_j \}_{1\leq j \leq p}$ is linear. Thus, for any observation $i$ we have:
+
+$$
+y_{i} = \beta_0 + \beta_1 x_{i, 1} + \beta_2 x_{i, 2} + ... + \beta_p x_{i, p} + \varepsilon_i
+$$
+
+where $\varepsilon_i$ denotes the error.
+
+[![Example of a simple linear model. The blue line represent the regression line following the equation \$y = \\beta_0 + \\beta_1 x_1\$ , the red dots represent the actual data \$(x\_{i,1}, y_i)\$ and the green lines represent the error between the fitted line and the actual data ( \$\\varepsilon_i\$ ).](images/clipboard-1166829611.png){alt="Example of a simple linear model. The blue line represent the regression line following the equation $y" fig-align="center" width="401"}](https://en.wikipedia.org/wiki/Linear_regression#/media/File:Linear_least_squares_example2.svg)
+
+So, we have seen that the linear regression tries to find a linear relationship between a dependent variable and a set of explanatory variables. But how are the linear coefficients ( $\{\beta_j\}_{0 \leq j \leq p}$ ) determined?
+
+The principle of linear regression is to find the "best" coefficients, such that the error between the regressed line and the actual data is minimized. So, given a set of $\{\hat{\beta_j}\}_{0 \leq j \leq p}$ and $\hat{y} = \hat{\beta_0} + \hat{\beta_1} x_1 + ... + \hat{\beta_p} x_p$ such that the distance $|| \hat{y} - y ||^2$ is minimal. This is the **linear least squares**.
+
+Linear models are subject to a number of assumptions which ensure that the estimation of the parameters works properly. We will see how to verify these assumptions.
+
+-   **Homoscedasticity of the error**: this means that the variance of the error terms ($\varepsilon_i$) is assumed to be constant. $\forall i, Var(\varepsilon_i) = \sigma^2$
+
+-   **Normality of the error:** this hypothesis requires that the error terms ($\varepsilon_i$) follows a normal distribution. $\forall i, \varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
+
+-   **Independence of errors:** $Cov(\varepsilon_i,\varepsilon_j) = 0$.
+
+-   **Non collinearity of the explanatory variables** (for multiple linear models only, *c.f* dedicated section).
+
+As you can see here, these assumptions rely the residuals which can be obtained only when the model is fitted. Therefore, unlike the $t$-test where you can check for the normality of the data before applying the model, in linear models (and ANOVA), you can check for the assumptions only after fitting the model.
+
+*N.B.* Linear models can be used for many purposes depending on the field. It can be used for prediction, if you have a new set of values $\{x_i\}$ you want to predict the resulted $y$. Though, in biology, it is very rare to use it as a prediction tool. It can also be used as a statistical test tool. We will see in this part how to test for associations between the response variable and the explanatory variables by applying a statistical test on the coefficients.
+
+## 2.1 Simple linear models
+
+A simple linear model corresponds to the case where we want to find the linear relationship between $y$ and a single explanatory variable $x$. In our case, we want to compare the expression of one of the genes to the cytokine.
+
+### 2.1.1 Data visualization
+
+A key point, before applying any method is to visualize your data. This will allow you to know if your data need to undergo some transformations, to notice eventual outliers or any other problem.
+
+So here, the first step is to visualize the expression of Gene2 as a function of the cytokine.
+
+```{r, echo = F}
+data %>% 
+  ggplot(aes(x = Cytokine, y = Gene2)) +
+  geom_point() + 
+  theme_bw() + # Optional to change the theme of the plot
+  xlab("Cytokine") # Optional change the x axis title
+```
+
+In this plot we notice that the expression of Gene2 seems to increase with the cytokine. However, the relationship between the two variables does not seem to be "linear", instead it appears to be more a "logartithmic" relationship.
+
+```{r, echo = F}
+# data %>% lm(Gene2 ~ log(Cytokine), data = .) %>% summary()
+logplt <- data.frame(x = seq(0, 10, by = .1)) %>% 
+          mutate(y = 4.34 + 1.26 * log(x)) %>% 
+          mutate(ylinear = 3.42 + 0.55 * x )
+
+data %>% 
+  ggplot(aes(x = Cytokine, y = Gene2)) +
+  geom_point() + 
+  geom_line(data = logplt, mapping = aes(x = x, y = ylinear), color = "red") + 
+  geom_line(data = logplt, mapping = aes(x = x, y = y), color = "blue") + 
+  theme_bw() + 
+  xlab("Cytokine")
+```
+
+In this kind of situation, we can still fall back to a linear relationship if we log-transform the cytokine.
+
+```{r, echo = F}
+data.log <- data %>% 
+            mutate(logMS = log(Cytokine)) 
+
+data.log %>% 
+  ggplot(aes(x = logMS, y = Gene2)) +
+  geom_point() + 
+  geom_smooth(method = lm, color = "red") +
+  theme_bw() + 
+  xlab("log(Cytokine)")
+```
+
+*N.B*. in the previous plot, we use the function `geom_smooth` with the method `lm` (for linear model) to add the fitted regression line directly on the plot. In the next section we are going to see how we can compute the coefficients that are necessary to get this regression line.
+
+### 2.1.2 Performing a simple linear model in R
+
+Now that we have log-transformed our data, we can assume that there is a linear relationship between the cytokine and the expression of Gene2. For this purpose, we will use the function `lm` and use the *formula* syntax `y ~ x`. Then we use the function `summary` to get useful information regarding our model.
+
+Usually in biology we focus on the coefficients of our model. And especially, when using linear models to test for associations between 2 quantitative variables, we want to know if the coefficient related to the explanatory variable is significantly different to 0. That's what the $p$-value of the coefficients is about.
+
+-   $H_0$ : $\beta_j = 0$
+
+-   $H_A$ : $\beta_j \neq 0$
+
+## 2.2 Multiple Linear models.
+
+This is the general case of linear models. We want to explain a variable $y$ with a set of $p$ explanatory variables $\{x_j\}_{1\leq j \leq p}$ such that:
+
+$$
+y = \beta_0 + \beta_1 x_1 + ... + \beta_p x_p
+$$
+
+Why do we do multiple linear models? In biology, a single marker can be influenced by a wide set of conditions/variables. A multiple linear model can be used to capture these relationships together. Also, in a simple linear model the response of $y$ to $x_1$ can be biased by another variable $x_2$. Multiple models make it possible to isolate the pure effect of each variable while controlling for the others, thus minimising the bias due to confounding variables. Also, it allows to take into account interactions of variables (see dedicated section).
+
+### 2.2.1 Check for multi-collinearity
+
+But before applying the multiple linear model there is an important hypothesis to check: the non collinearity of the covariates.
+
+![](images/clipboard-1853439655.png)
+
+So here we can visualize if the covariates are collinear using the `plot` function from the base R or the function `ggpairs` from the `GGally` package.
+
+### 2.2.2 Interactions
+
+In linear regression, interaction (also known as *effect modification*) between the variables $x_1$ and $x_2$ describes the variation of effect of $x_1$ on $y$ according to $x_2$.
+
+[![Image taken from Biostatistic Collaboration of Australia.](images/clipboard-51600845.png){alt="Image take from Biostatistic Collaboration of Australia." width="576"}](https://bookdown.org/tpinto_home/regression_modelling_for_biostatistics_1/006-interaction_collinearity.html)
+
+A nice way to visualize the interaction between a continuous variable and a categorical variable is to combine `geom_smooth` with the color parameter and see eventual different lines. For example if we were to study the interaction between the cytokine and sex to explain the expression of Gene2, we could do as follows.
+
+## 2.3 Logistic regression (bonus)
+
+If you retake the simple linear model equation, we were studying a problem where we assume a linear relationship between a depend variable $y$ and an explanatory variable $x$ such that $$ y = \beta_0 + \beta_1 x $$. But what happens if the relationship between $y$ and $x$ is not linear?
+
+Let's take the case where $y$ is a non continuous variable, for example $y = 1$ for disease patients and $y = 0$ for controls. And given a gene $x$, we want to see if there is an association between the expression of the gene $x$ and the case of the patients
+
+![](images/Capture_d_écran_2024-11-08_à_12.56.17.png)
+
+With this example, we would like to find a function that takes the value 0 when the level of expression is low and that takes the value 1 for higher expression level. A bit like the sigmoid function...
+
+![](images/Capture_d_écran_2024-11-08_à_12.57.12.png)
+
+The goal of the logistic regression will be to find the $\beta$ that fits the best the distribution of the data. But what's the link with linear regression (except that we need to find a "good enough" $\beta$)?
+
+Well, if there is no linear relationship between $y$ and $x$, maybe we can find a transformation $g$ of $y$ such that there is a linear relationship between $g(y)$ and $x$ : $g(y) = \beta_0 + \beta_1 x$. The transformation $g$ is called the *link function*. In our case, if we take $g : p \in [0,1] \mapsto \log\left( \frac{p}{1-p}\right) \in \mathbb{R}$ (logit function), we can easily show that if $g(y) = \beta_0 + \beta_1 x$, then we have $y = \frac{1}{1 + e^{-(\beta_0 + \beta_1 x)}}$ : a sigmoid!

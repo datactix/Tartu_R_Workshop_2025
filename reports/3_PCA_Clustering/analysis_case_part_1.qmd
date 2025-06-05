@@ -1,0 +1,399 @@
+---
+title: "PCA and clustering"
+subtitle: "A complete analysis case - part 1"
+format:
+  html:
+    embed-resources: true
+    toc: true
+    toc-location: left
+    theme: cosmo
+    reference-location: margin
+    citation-location: margin
+    grid:
+      sidebar-width: 300px
+      body-width: 900px
+      margin-width: 300px
+editor: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r general_setup, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+# Import the data and load the libraries
+
+To help reproducibility :
+
+```{r}
+set.seed(123)
+```
+
+We load the libraries we are using :
+
+```{r load_lib}
+library(tidyverse)
+library(here)
+library(readr)
+library(FactoMineR)
+library(factoextra)
+library(corrplot)
+library(ggpubr)
+
+```
+
+We load the datasets :
+
+The data are in the `.tsv` format (**t**ab **s**eparated **v**alues), to load them we will use the `readr` dedicated function `read_tsv()` .
+To help us dealing with the path to the files we will use the library `here` that allow us to specify the path relatively to the root of our Rstudio project (we don't need anymore to know where our project is located).
+
+```{r, results=FALSE}
+
+meta_data <- readr::read_tsv(here::here('data/curated_datasets/MI_eCRF_Curated.tsv')) 
+# We extract the nanostring data 
+#ns_data <- readr::read_tsv(here::here('HKCoursesMaterials/data/curated_datasets_v2/MI_Nanostring-eCRF_Curated.tsv')) %>% dplyr::select(- dplyr::all_of(colnames(meta_data) %>% setdiff("SUBJID"))) %>% dplyr::filter(! is.na(Stimulus))
+
+ns_data <- readr::read_tsv(here::here('data/curated_datasets/MI_Nanostring-eCRF_Curated.tsv')) %>% dplyr::select(- dplyr::all_of(colnames(meta_data) %>% setdiff("SUBJID"))) %>% dplyr::filter(! is.na(Stimulus))
+
+
+
+```
+
+<details>
+
+<summary>**BONUS** Check the data (never trust the data) : the nanostring dataset</summary>
+
+\*\* This part is a bit out of the scope of this lesson, but to illustrate what should be real data analysis plan, we chose to present it anyway \*\*
+
+Data generation is a long process, eventually involving multiple peoples, technologies and centers over long period of time.
+This complexity strongly increase the risk of errors (missing data, swapped samples, etc ...) and loss of quality (batch effect, inconsistency).
+
+A good practice is to systematically check for the integrity and quality of the data before starting any project.
+
+In our case, a good start would be to check some general facts about our dataset :
+
+-   How many samples do we have in our dataset ?
+
+```{r}
+ns_data %>% nrow()
+```
+
+-   How many donors do we have in our dataset ?
+
+```{r}
+ns_data %>% dplyr::pull('SUBJID') %>% unique() %>% length()
+```
+
+-   How many and which stimulation do we have in our dataset ?
+
+```{r}
+ns_data %>% dplyr::pull('Stimulus') %>% unique()
+```
+
+-   Do we have all the stimulation condition for each donors ?
+
+```{r}
+ns_data %>% 
+  dplyr::select('SUBJID', 'Stimulus') %>% 
+  dplyr::group_by(Stimulus) %>%
+  dplyr::summarise(dplyr::across(dplyr::everything(),~ dplyr::n_distinct(SUBJID)))
+```
+
+-   Do we have only one value for each donors \* stimulus (check the absence of duplicates) ?
+
+Taking into account the results to the previous questions we can already assert that we don't have duplicates, but for pedagogical purposes here is a way to extract all the duplicated couple of donors \* stimulus :
+
+```{r check_duplicates}
+
+ns_data %>% 
+  dplyr::group_by(SUBJID, Stimulus) %>%
+  dplyr::summarise(nb = n()) %>%
+  dplyr::ungroup() %>% 
+  dplyr::filter(nb > 1)
+
+```
+
+-   Do we have missing values, and if yes, where ?
+
+First check column wise :
+
+```{r check_na_column_wise}
+ns_data %>%
+  dplyr::summarise(dplyr::across(dplyr::everything(),~sum(is.na(.)))) %>%
+  tidyr::pivot_longer(cols = dplyr::where(is.numeric) ,names_to = "variable", values_to = "na_count") %>% 
+  dplyr::filter(na_count > 1)
+```
+
+Second check row wise, by SUBJID :
+
+```{r check_na_row_wise}
+ns_data %>%
+  dplyr::group_by(SUBJID) %>% 
+  dplyr::summarise(dplyr::across(dplyr::everything(),~sum(is.na(.)))) %>% 
+  # row sum will sum all the column for each row, we remove the SUBJID to avoid getting him summed with the na count of the other columns 
+  dplyr::filter(rowSums(dplyr::select(., -SUBJID)) > 0)
+
+```
+
+$\rightarrow$ **Our dataset seems complete.**
+
+</details>
+
+<details>
+
+<summary>**BONUS** Check the data (never trust the data) : the meta-data dataset</summary>
+
+As we will use them later we will also check the meta-data dataset and its consistency with the nanostring dataset :
+
+-   We check the number of donors and its consistency with the nanostring dataset :
+
+```{r}
+meta_data %>% dplyr::pull('SUBJID') %>% unique() %>% length()
+```
+
+That's more donors than we have in our nanostring dataset.
+Let's check if we have data from all the donors presents in the nanostring dataset.
+To do so we can extract all the donor id from the nanostring dataset that are not present in the meta_data dataset :
+
+```{r}
+# setdiff substract the second ensemble to the first
+setdiff(dplyr::pull(ns_data, 'SUBJID'), dplyr::pull(meta_data, 'SUBJID')) %>% length()
+```
+
+Ok, we are not missing any donors.
+
+-   We check that for all the donors in the nanostring dataset we have the complete meta-data :
+
+```{r check_na_metadata}
+
+meta_data %>%
+  # we first extract all the donors from the nanostring dataset 
+  dplyr::filter(SUBJID %in% unique(dplyr::pull(ns_data, SUBJID))) %>%
+  # we can apply again the code we wrote previsouly
+  dplyr::group_by(SUBJID) %>% 
+  dplyr::summarise(dplyr::across(dplyr::everything(),~sum(is.na(.)))) %>% 
+  # row sum will sum all the column for each row, we remove the SUBJID to avoid getting him summed with the na count of the other columns 
+  dplyr::filter(rowSums(dplyr::select(., -SUBJID)) > 0) 
+
+```
+
+OK, we are not missing any information about any of our donors.
+
+$\rightarrow$ **Our meta_data dataset is complete and consistent with the nanostring dataset.**
+
+</details>
+
+# A first overview the data
+
+As a preliminary analysis we will try to get a global overview of our dataset.
+\
+Given the high dimensionality of our dataset, the PCA is the perfect tool for this.
+It will allow us to quickly get a general understanding of the way our data are structured.
+This first knowledge will be the ground for following analysis.
+
+## Our first PCA object
+
+To perform the PCA we will use the [FactoMineR library](http://factominer.free.fr/index.html), a turnkey solution that allow you to perform various dimensionality reduction analysis.
+Other implementation of PCA exist in R, such as the [prcomp function](https://www.rdocumentation.org/packages/stats/versions/3.6.2/topics/prcomp) from the base R package stats.
+This function is more flexible but require more work to extract the information.
+
+The first step is to produce the pca object itself.
+This object will contain all the information about the PCA.
+
+Let's start by reading the [documentation](https://rdrr.io/cran/FactoMineR/man/PCA.html) of this function :
+
+![Screenshot of the documentation of the `PCA()` function from the `FactoMineR`package. Full webpage can be accessed here : https://rdrr.io/cran/FactoMineR/man/PCA.html](img/doc_pca.png){fig-align="center" width="80%"}
+
+### Prepare the data for the PCA
+
+#### 1. Dataset structure :
+
+The documentation of the PCA function states that `X`, the dataframe object containing our data, should be oriented in such a way that our observations (in our case the samples) are in rows and the quantified parameters (in our case the gene expression level) in columns.
+
+$\rightarrow$ We are lucky, our dataset is already organized in such way.
+
+#### 2. Keep only the numerical variables (corresponding to measured parameters)
+
+The documentation also mention that our data should contains only numerical values (PCA cannot handle non numerical values).
+That is a bit more annoying : our dataset also contains some extra non numerical information (like the stimulus) as well as numerical information that are not measured parameters (like the subject id).
+
+We remove them to keep only the measured parameters (gene transcripts) :
+
+```{r, results=FALSE}
+data_for_pca <- ns_data %>%
+   # we remove any columns that is not a nanostring measure
+   dplyr::select(-dplyr::all_of(c('SUBJID','Stimulus','batch.NS','batch.TruCult'))) 
+  
+```
+
+#### 3. Transform your data
+
+PCA are sensitive to the distribution and scale of our data, thus, we need to be particularly cautious while choosing the transformation method.
+In the ideal textbook case (relatively homogeneous data) the most common strategy is to scale the data.
+
+In our case we are dealing with transcriptional data, we want to down-weight the high values, reducing the dynamic range without over-weighting weakly expressed genes (low values).
+
+A possible solution, widely used, is to log transform the gene expression levels.
+However the log transformation does not apply well to values under 1, and our dataset seems to contain quite a few of them :
+
+```{r, results = FALSE}
+# in order to apply a log transformation we should first check that we don't have values of zero and ideally no values under 1
+data_for_pca %>%
+          dplyr::summarise(dplyr::across(dplyr::where(is.numeric),~sum(. < 1, na.rm = TRUE))) %>%
+          tidyr::pivot_longer(cols = dplyr::where(is.numeric) ,names_to = "variable", values_to = "count_values_under_1") %>%
+  dplyr::filter(count_values_under_1 > 0)
+
+  
+```
+
+A common workaround is to transform using the function $f(x) \rightarrow log(x+1)$ instead.
+
+A better approach is to use the arc sinus hyperbolic ($arsinh(x) \rightarrow log(x+\sqrt{x^2 + 1})$) this transformation will behave similarly to the logarithm for high values while handling smoothly values in the range of $[0;1]$.
+
+Let's do this :
+
+```{r, results=FALSE}
+# the function to calcul the arc sius hyperbolic in r is asinh, we apply it to all our data
+data_for_pca <- data_for_pca %>%
+         dplyr::mutate( dplyr::across(dplyr::everything(), asinh))
+```
+
+### Compute the PCA
+
+We can now apply the \`PCA\` function to our data :
+
+```{r, results = FALSE}
+
+pca_object <- data_for_pca %>%
+        FactoMineR::PCA(graph = FALSE, ncp = 10)
+
+```
+
+Note the parameters we used :
+
+-   \`graph = F\` by default the function produce a certain number of basic visualization, we turn this option to false : we don't need them, we will generate them independently later (and of a better quality)
+
+The PCA object we generate this way contains all the principal component as well as the projection of each observation.
+
+## Visualization : a first overview on PC 1 and 2
+
+Now that we have our PCA object, we can start to explore it !
+
+PCA are extremely useful to reveals the underlying organisation of our data[^1].
+
+[^1]: By "organization" we means the set of correlations between variables or observation, if any, that structure a dataset.
+
+The most informative way to visualize a PCA is the individuals projection on a scatter plot, to do so we will use the `factoextra` library.
+This library will offer us a complete toolkit to explore a PCA object.
+
+One of the function we will use the most is the [`fviz_pca_ind()`](https://search.r-project.org/CRAN/refmans/factoextra/html/fviz_pca.html) , this is a versatile function to explore the individuals (the observation) projection in our PCA.
+
+```{r}
+# we set label to "none" to avoid having a cloud of overlapping id, making the plot unreadable
+pca_object %>% factoextra::fviz_pca_ind( axes = c(1,2), label = "none")
+```
+
+We can clearly observe 3 clusters, an obvious supposition would be that they are corresponding to the stimulus in our dataset.
+To check this we can color our plot by stimulus, this is done using the `habillage` parameter of `fviz_pca_ind()` :
+
+```{r}
+pca_object %>% factoextra::fviz_pca_ind( label = "none", habillage = as.factor(ns_data$Stimulus))
+```
+
+This PCA show a really good clustering for the *Null* (no stimulation) and *IAV* (stimulation by *influenza* virus), the other stimulation however tends to group all together.
+
+We will have to explore the next components to see if we can better discriminates these groups.
+
+### Select the number of component to consider
+
+A PCA is not limited to its first two components, the next ones can also retains some interesting signal.
+To explore the PCA components we first needs to know which percentage of the total variance of the dataset they explain.
+This percentage of total variance explained (also known as "eigenvalue") by component can be summarized using a barplot, this particular plot usually named "screeplot" can be easily generated thanks to the `factoextra` library by using the [`fviz_screeplot()`](https://www.rdocumentation.org/packages/factoextra/versions/1.0.7/topics/eigenvalue) function.
+
+```{r}
+pca_object %>% factoextra::fviz_screeplot()
+```
+
+There is no clear rules on how to choose the number of component you could consider.
+
+One guideline you can apply is too keep all the components with an eigenvalue over 1 (with the logic that an eigenvalue over 1 still explains more variance that an original variable considered alone).
+Another approach is to keep all the component until you explain a certain percentage of the total variance.
+In our case, to keep this lesson easily readable (and avoid over-crowded figure) we will limit ourselves to the first 5 five components.
+
+### Visualize all your component of interest at once :
+
+Rather than to going through all the pair of components one by one, we can visualize all of them at once using a grid plot of the different components combination :
+
+```{r, fig.height = 15, fig.width = 15}
+# the number of component to consider
+n_compo <- 5
+
+#first we generate all the combination
+combination_component <- tidyr::crossing(compo_x = 1:n_compo , compo_y = 1:n_compo)
+
+
+#the function we will use to generate each plot (scatter plot projection of the PCA individuals), given the component for each axes x and y
+plot_my_pca <- function(pca_obj, .x, .y){
+  # we will use factoextra to generate each sub-plot, to change the properties (ie using the bi-plot) you just have to moify the following line :
+  factoextra::fviz_pca_ind(pca_obj,axes = c(.y,.x), label = "none", habillage = as.factor(ns_data$Stimulus)) +
+  # the titles of each sublplot wouold take too much space, we take advantage of ggpplot2 format of the 
+  # plot generated by factoextra to get rid of them using the dedcated ggplot2 library
+  ggplot2::ggtitle('')
+}
+
+# purrr will allow us to submit directly the given component to the function
+# allowing us to avoid the writing of a complex loop. It will return a list containing the results of the
+# calls of this functions for each combination of x and y 
+purrr::map2(.x = combination_component$compo_x,
+            .y = combination_component$compo_y,
+            .f = ~ plot_my_pca(pca_object, .x, .y)) %>%
+  # ggarrange will allow us to organize all of these subplot into one unique plot
+  ggpubr::ggarrange(plotlist = ., ncol = n_compo, nrow = n_compo, common.legend = TRUE, legend = "bottom")
+
+
+```
+
+Here is a summary of the component discrimination power, observed by eyes, between the different stimulus :
+
+-   component 1 : good discrimination between the *Null,* *IAV* and the other stimulus
+
+-   component 2 : light discrimination of each stimulation at the exception of *E.Coli*, *BCG* and *S.Aureus*
+
+-   component 3 : light discrimination of *C.Albicans*
+
+-   component 4 : almost no clear discrimination between any of the stimulus can be observed
+
+-   component 5 : good discrimination of *SEB* and light discrimination of all the other stimulus
+
+To sum up all the information we got from this visualization, we can say that this first 5 components capture the signal allowing to discriminate between *Null,* *IAV*, *C.ALbicans*, *SEB* and a cluster constituted by all the bacterial stimulus (*E.Coli*, *BCG* and *S.Aureus*).
+The distance between the cluster, and the mixing of different stimulation in one cluster is also informative, it tells us that that some stimulus are more similar than others.
+For example, we can conclude from the proximity of the *BCG*, *E.Coli* and *S.Aureus* stimulus that they elicit a relatively similar immune response.
+Finally an other interesting point, is the shape of the cluster formed by a given stimulus.
+The spread of these cluster express the inter-individual variability in the response to a given stimulus.
+It's particularly visible for the *IAV* (*Influenza*) stimulus.
+Some donors are projected between the *IAV* cluster and the *Null* cluster (it is tempting to interpret them as individuals exhibiting a weak anti-viral response against *Influenza*)
+
+## (advanced user) Bonus : visualize 3 components at once using an interactive 3D plot
+
+It happens that we ended up interested in 3 components, as solution to visualize them is to create the 3 scatter plot (one for each possible pair of variables), but a more straightforward solution is often to draw a 3D scatter plot.
+The `ggplot2` library we used till there do not support interactive 3D, to perform this task we will rather use the `plotly` library :
+
+```{r}
+library(plotly)
+
+# 1 - we extract the projected values in the 3 first component :
+# To do so we will have to manually dig into the pca_object : a complicated structure made of nested list of matrix
+pca_object$'ind'$'coord' %>%
+  # first lets turn it into a beautiful tibble (the format of data_frame tidyverse is using)
+  # tibble does not have rownames, but we can ask him to convert the rownames into a proper column using the rownames argument
+  tibble::as_tibble(rownames = 'sample_id') %>%
+  # we select the 3 first components
+  dplyr::select(dplyr::all_of(c('sample_id', paste0('Dim.',1:3)))) %>%
+  # we submit them to plotly
+  plotly::plot_ly(x = ~Dim.1, y = ~Dim.2, z = ~Dim.3, text = ~sample_id, color = ns_data$Stimulus, trace = 'scatter3d')
+
+```
+
+This kind of visualization is particularly helpful during the first exploratory phase of analysis, the interactivity offered by `plotly` can save a lot of time.
+However the environment around the `plotly` library is poorer than ggplot2 (especially for bioinformatic visualization) : producing a mature plot may require more time and efforts.

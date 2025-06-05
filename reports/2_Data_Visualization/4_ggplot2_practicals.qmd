@@ -1,0 +1,200 @@
+---
+title: "MI Dataset Exploration with Data Visualization"
+format: 
+  html:
+    toc: true
+    toc-location: left
+    toc_float: true
+    embed-resources: true
+editor: visual
+---
+
+## MI Dataset Exploration with ggplot2
+
+This part of the workshop provides an opportunity to put into practice some ggplot2 skills using the Milieu Intérieur datasets. Using the cookbook, as well as the ggplot2 cheat sheet, the following sections will require you to analyze an existing visualization with the idea of identifying all its parameters so that it can be reproduced with R.
+
+## Set-up
+
+```{r}
+library(tidyverse)
+```
+
+## Plot #1
+
+![](images/plot_1.png){fig-align="center"}
+
+#### **Questions:**
+
+-   From which MI dataset this plot is built from ?
+
+    -   ... insert your comment here ...
+
+-   What type of plot is represented ?
+
+    -   ... insert your comment here ...
+
+-   What are the variables used in this plot ? And, what are the plot aesthetics associated to each variable ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Are there any other graphical details that seems to have been customized ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Using your analysis, provide a R code that will replicate this plot using ggplot2. Add also some code to save your plot as a PNG format.
+
+    ```{r}
+    # ... your code here ...
+    ```
+
+-   Suggest a possible interpretation for this data visualization.
+
+    -   ... your interpretation ...
+
+## Plot #2
+
+![](images/plot_2.png){fig-align="center"}
+
+#### **Questions:**
+
+-   From which MI dataset this plot is built from ?
+
+    -   ... insert your comment here ...
+
+-   What type of plot is represented ?
+
+    -   ... insert your comment here ...
+
+-   What are the variables used in this plot ? And, what are the plot aesthetics associated to each variable ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Are there any other graphical details that seems to have been customized ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Using your analysis, provide a R code that will replicate this plot using ggplot2. Add also some code to save your plot as a PNG format.
+
+    ```{r}
+    # ... your code here ...
+    ```
+
+-   Suggest a possible interpretation for this data visualization.
+
+    -   ... your interpretation ...
+
+## Plot #3
+
+![](images/plot_3.png){fig-align="center"}
+
+#### **Questions:**
+
+-   From which MI dataset this plot is built from ?
+
+    -   ... insert your comment here ...
+
+-   What type of plot is represented ?
+
+    -   ... insert your comment here ...
+
+-   What are the variables used in this plot ? And, what are the plot aesthetics associated to each variable ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Are there any other graphical details that seems to have been customized ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Using your analysis, provide a R code that will replicate this plot using ggplot2. Add also some code to save your plot as a PNG format.
+
+    ```{r}
+    # ... your code here ...
+    ```
+
+-   Suggest a possible interpretation for this data visualization.
+
+    -   ... your interpretation ...
+
+## Plot #4 (Advanced)
+
+![](images/plot_4.png){fig-align="center"}
+
+#### **Questions:**
+
+-   From which MI dataset this plot is built from ?
+
+    -   ... insert your comment here ...
+
+-   What type of plot is represented ?
+
+    -   ... insert your comment here ...
+
+-   What are the variables used in this plot ? And, what are the plot aesthetics associated to each variable ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Are there any other graphical details that seems to have been customized ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Using your analysis, provide a R code that will replicate this plot using ggplot2. Add also some code to save your plot as a PNG format.
+
+    ```{r}
+    # ... your code here ...
+    ```
+
+-   Suggest a possible interpretation for this data visualization.
+
+    -   ... your interpretation ...
+
+## Plot #5 (Advanced)
+
+![](images/plot_5.png){fig-align="center"}
+
+#### **Questions:**
+
+-   From which MI dataset this plot is built from ?
+
+    -   ... insert your comment here ...
+
+-   What type of plot is represented ?
+
+    -   ... insert your comment here ...
+
+-   What are the variables used in this plot ? And, what are the plot aesthetics associated to each variable ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Are there any other graphical details that seems to have been customized ?
+
+    -   ... insert your comments here ...
+
+    -   ...
+
+-   Using your analysis, provide a R code that will replicate this plot using ggplot2. Add also some code to save your plot as a PNG format.
+
+    ```{r}
+    # ... your code here ...
+    ```
+
+-   Suggest a possible interpretation for this data visualization.
+
+    -   ... your interpretation ...

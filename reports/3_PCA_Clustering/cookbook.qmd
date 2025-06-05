@@ -1,0 +1,290 @@
+---
+title: "PCA and clusterisation"
+subtitle: "Cookbook"
+author: "Etienne VILLAIN & the teaching team"      
+format:
+  html:
+    toc: true
+    toc-location: left
+    theme: cosmo
+    reference-location: margin
+    citation-location: margin
+    grid:
+      sidebar-width: 300px
+      body-width: 900px
+      margin-width: 300px
+---
+
+```{r general_setup, echo=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+We load the libraries we are using :
+
+```{r load_lib}
+library(tidyverse)
+library(here)
+library(readr)
+library(FactoMineR)
+library(factoextra)
+library(corrplot)
+library(ggpubr)
+library(plotly)
+```
+
+To illustrate the recipes we create a synthetic dataset :
+
+```{r}
+# number of patients to simulate
+nb_patients_gp1 <- 50
+
+# we consider that we have normalized expression with mean=0
+cytokine_means_gp1 <- c(cytokine_1 = 0, cytokine_2 = 0, cytokine_3 = 0, cytokine_4 = 0, cytokine_5=0)
+# we build a covariance matrix to describe the correlation structure between the variables
+cytokine_covariance_mtx_gp1 <- matrix(c(1.0, 0.8, 0.9, 0.1, 0.1,
+                                        0.8, 1.0, 0.8, 0.1, 0.1,
+                                        0.9, 0.8, 1.0, 0.1, 0.1,
+                                        0.1, 0.1, 0.1, 1.0, 0.9,
+                                        0.1, 0.1, 0.1, 0.9, 1.0), nrow = 5)
+
+# build a tibble data.frame with subject_id and group_id
+synth_data_g1 <- tibble(subject_id = paste0("SUBJ",1:nb_patients_gp1),
+                     group_id = "group_1") |> 
+  # add columns related to cytokine expressions 
+  dplyr::bind_cols(as_tibble(MASS::mvrnorm(n = nb_patients_gp1,
+                                          mu = cytokine_means_gp1, 
+                                          Sigma = cytokine_covariance_mtx_gp1)))
+
+
+# we build a covariance matrix to describe the correlation structure between the variables
+nb_patients_gp2 <- 50
+
+#Keep the same correlation structure between the cytokines, however shift the mean values for the cytokines 4 and 5, as if a stimulation had increased their levels.
+# increased mean level for cytokine 4 and 5 compared to group_1
+cytokine_means_gp2 <- c(cytokine_1 = 0, cytokine_2 = 0, cytokine_3 = 0, cytokine_4 = 6, cytokine_5=6)
+# same as before
+cytokine_covariance_mtx_gp2 <- matrix(c(1.0, 0.8, 0.9, 0.1, 0.1,
+                                        0.8, 1.0, 0.8, 0.1, 0.1,
+                                        0.9, 0.8, 1.0, 0.1, 0.1,
+                                        0.1, 0.1, 0.1, 1.0, 0.9,
+                                        0.1, 0.1, 0.1, 0.9, 1.0), nrow = 5)
+
+# build a tibble data.frame with subject_id and group_id
+synth_data_g2 <- tibble(subject_id = paste0("SUBJ",(nb_patients_gp1+1):(nb_patients_gp1+nb_patients_gp2)),
+                     group_id = "group_2") |> 
+  # add columns related to cytokine expressions 
+  dplyr::bind_cols(as_tibble(MASS::mvrnorm(n = nb_patients_gp2,
+                                          mu = cytokine_means_gp2, 
+                                          Sigma = cytokine_covariance_mtx_gp2)))
+
+synth_data <- dplyr::bind_rows(synth_data_g1,synth_data_g2)
+
+synth_data_with_na <- synth_data %>% 
+  # nota the subject_id are not numerical
+  dplyr::mutate(dplyr::across(dplyr::where(is.numeric), ~ifelse(runif(n()) < 0.15, NA, .)))
+
+
+```
+
+# Some tidyr recipes to check integrity of a dataset
+
+## Check the presence of missing values **by row**
+
+```{r}
+
+synth_data_with_na %>%
+  # we apply to each columns the function sum(is.na(.)) that count the numbe rof missing value
+  dplyr::summarise(dplyr::across(dplyr::where(is.numeric), ~sum(is.na(.)))) %>%
+  # we pivot the dataset to have a format easier to handle 
+  tidyr::pivot_longer(cols = dplyr::where(is.numeric) ,names_to = "variable", values_to = "na_count") %>% 
+  # we keep only the the variables for which we found at least one missing column
+  dplyr::filter(na_count > 1)
+
+```
+
+## Check the presence of missing values in all the columns containing numericals values in regard of a given categorical variables (subject_id) **by row**
+
+```{r}
+synth_data_with_na %>%
+  # we group the data by subject_id : the following operation will be done only on the rows belonging to the given subject 
+  dplyr::group_by(subject_id) %>% 
+  # we apply to each columns the function sum(is.na(.)) that count the number of missing values
+  dplyr::summarise(dplyr::across(dplyr::where(is.numeric), ~sum(is.na(.)))) %>%
+  # row sum will sum all the column for each row, we remove the subject_id to avoid getting him summed with the na count of the other columns 
+  dplyr::mutate(sum_NA = rowSums(dplyr::select_if(., is.numeric))) %>%
+  dplyr::ungroup() %>%
+  dplyr::select(subject_id, sum_NA)
+
+```
+
+## Check the presence of missing numerical value **by column**
+
+```{r}
+synth_data_with_na %>%
+  dplyr::summarise(dplyr::across(dplyr::where(is.numeric), ~sum(is.na(.)))) %>%
+  tidyr::pivot_longer(cols = dplyr::where(is.numeric) ,names_to = "variable", values_to = "na_count") %>% 
+  dplyr::filter(na_count > 1)
+```
+
+## Check the number of unique donor_id in regard of a given categorical variables (group_id)
+
+```{r}
+
+count_unique <- function(x){length(unique(x))}
+
+synth_data_with_na %>%
+  dplyr::select(subject_id, group_id) %>%
+  dplyr::group_by(group_id) %>%
+  summarise( count = count_unique(subject_id))
+
+
+
+```
+
+## Drop all lines containing missing values
+
+```{r}
+synth_data_with_na %>% tidyr::drop_na()
+```
+
+# FactoMineR / Factoextra toolkit
+
+## compute PCA
+
+```{r}
+pca_object <- synth_data %>% 
+  dplyr::select(-subject_id, -group_id) %>% 
+  FactoMineR::PCA(graph = FALSE) 
+```
+
+## screeplot
+
+```{r}
+pca_object %>% factoextra::fviz_screeplot()
+```
+
+## extract individuals coordinates
+
+PCA objects generated by `FactoMineR`are constituted by nested list of data matrix, here is a short menmonic to extract the individuals coordinates from it :
+
+```{r}
+
+all_coordinates <- pca_object$ind$coord
+
+head(all_coordinates)
+
+```
+
+## extract loadings of all the components
+
+PCA objects generated by `FactoMineR`are constituted by nested list of data matrix, here is a short menmonic to extract the component loadings from it :
+
+```{r}
+
+all_loadings <- pca_object$var$coord
+
+head(all_loadings)
+
+```
+
+## pairplot
+
+```{r}
+pca_object$ind$coord %>% 
+  dplyr::as_data_frame() %>% 
+  dplyr::bind_cols(synth_data %>% dplyr::select(subject_id, group_id)) %>% 
+  GGally::ggpairs(columns = 1:5, ggplot2::aes(colour = group_id), upper = "blank")
+```
+
+## individual scatter plot colored by a categorical variable
+
+```{r}
+pca_object %>% factoextra::fviz_pca_ind(axes = c(1,2), habillage = as.factor(synth_data$group_id)) 
+```
+
+## individual scatter plot colored by a continuous variable
+
+```{r}
+pca_object %>% factoextra::fviz_pca_ind(axes = c(1,2), col.ind = as.numeric(synth_data$cytokine_1)) 
+```
+
+## 5 most conritbuting variables loading projection plot for a given pair of component
+
+```{r}
+
+pca_object %>% factoextra::fviz_pca_ind(axes = c(1,2), select.var = list(contrib = 5))
+
+```
+
+## variable loading barplot for a given component
+
+Top contributing variables to the component 1
+
+```{r}
+pca_object %>%factoextra::fviz_contrib(choice = 'var', axes = 1) 
+```
+
+## pair plot using factoextra :
+
+Colored by group :
+
+```{r fig.height = 15, fig.width = 15}
+
+# the number of component to consider
+n_compo <- 5
+
+#first we generate all the combination
+combination_component <- tidyr::crossing(compo_x = 1:n_compo , compo_y = 1:n_compo)
+
+plot_my_pca <- function(pca_obj, .x, .y){factoextra::fviz_pca_ind(pca_object,axes = c(.y,.x), label = "none", habillage = as.factor(synth_data$group_id)) + ggplot2::ggtitle('')}
+
+purrr::map2(.x = combination_component$compo_x,
+            .y = combination_component$compo_y,
+            .f = ~ plot_my_pca(object_pca_IAV_only, .x, .y)) %>%
+  ggpubr::ggarrange(plotlist = ., ncol = n_compo, nrow = n_compo, common.legend = TRUE, legend = "bottom")
+```
+
+Colored by variable :
+
+```{r fig.height = 15, fig.width = 15}
+
+# the number of component to consider
+n_compo <- 5
+
+#first we generate all the combination
+combination_component <- tidyr::crossing(compo_x = 1:n_compo , compo_y = 1:n_compo)
+
+plot_my_pca <- function(pca_obj, .x, .y){factoextra::fviz_pca_ind(pca_object,axes = c(.y,.x), label = "none", col.ind = as.numeric(synth_data$cytokine_1)) + ggplot2::ggtitle('')}
+
+purrr::map2(.x = combination_component$compo_x,
+            .y = combination_component$compo_y,
+            .f = ~ plot_my_pca(object_pca_IAV_only, .x, .y)) %>%
+  ggpubr::ggarrange(plotlist = ., ncol = n_compo, nrow = n_compo, common.legend = TRUE, legend = "bottom")
+```
+
+# Bonus : Plotly recipes
+
+Plotly is a library to generate interactive plots, interactive plots can be extrelky usefull to explore complex dataset.
+
+## scatter plot colored by a categorical variable
+
+Note the `~`symbol, it is used to indicates plotly that the variables should be extracted from the dataset we submit.
+
+```{r}
+synth_data %>%
+  plotly::plot_ly(x = ~cytokine_1, y = ~cytokine_2, z = ~cytokine_3, color = ~group_id)
+```
+
+## scatter plot colored by a continuous variable
+
+```{r}
+synth_data %>%
+  plotly::plot_ly(x = ~cytokine_1, y = ~cytokine_2, z = ~cytokine_3, color = ~cytokine_4)
+```
+
+## 2D scatter plot with id of donors displayed while flying the cursor over the point
+
+```{r}
+synth_data %>%
+  plotly::plot_ly(x = ~cytokine_1, y = ~cytokine_2, text = ~subject_id)
+```

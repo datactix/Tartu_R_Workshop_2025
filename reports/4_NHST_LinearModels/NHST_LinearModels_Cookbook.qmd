@@ -1,0 +1,1056 @@
+---
+title: "Null Hypothesis Statistical Testing & Linear Models"
+subtitle: "Some recipes and theory"
+format: 
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    toc-title: "Table of content"
+    embed-resources: true
+editor: visual
+---
+
+# Set up
+
+## Set Quarto up
+
+<details>
+
+<summary>Show quarto set up</summary>
+
+```{r setup}
+# No warnings or supplementary message in the html
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+</details>
+
+## Load useful packages
+
+<details>
+
+<summary>Show loaded packages</summary>
+
+```{r}
+# Data manipulation
+library(tidyverse)
+
+# Visualization
+library(ggplot2)
+library(ggsignif)
+
+# Modeling 
+library(limma) # c.f. 2.4
+```
+
+</details>
+
+## Generation of simulated data
+
+<details>
+
+<summary>Show data generation</summary>
+
+```{r}
+set.seed(9876)
+# Number of samples
+n <- 50
+
+# mean temperature
+mean_temp_female <- 37.1 # Slighty higher than 37
+mean_temp_male <- 36.9 # Slighty lower than 37
+
+# Determines random number of male and females with tot = n
+n_female <- sum(rbinom(n = n, size = 1, p = 0.5))
+n_male <- n - n_female
+
+# Determines number of smokers
+n_smokers_female <- floor(.20 * n_female)
+n_nonsmokers_female <- n_female - n_smokers_female
+
+n_smokers_male <- floor(.60 * n_male)
+n_nonsmokers_male <- n_male - n_smokers_male
+
+# Generate fake data set
+data <- data.frame(# Simulate different proportions of male and females
+                   Sex = c(rep("Female", times = n_female), 
+                           rep("Male", times = n_male)),
+                   Smoking = c(rep("Smoker", times = n_smokers_female), 
+                               rep("Non Smoker", times = n_nonsmokers_female), 
+                               rep("Smoker", times = n_smokers_male), 
+                               rep("Non Smoker", times = n_nonsmokers_male)
+                               ), 
+                   # Simulate temperatute data mu_male < mu_female
+                   Temperature = c(rnorm(n_female, mean = mean_temp_female, sd = .5),
+                                   rnorm(n_male, mean = mean_temp_male, sd = .5)), 
+                   # Simulate a numeric variable called cytokine 
+                   # (no normal distribution)
+                   # Cytokine = c(rgamma(n_female, shape = 9, rate = .5), 
+                   #                     rgamma(n_male, shape = 1, rate = 2)), 
+                    Cytokine = c(rgamma(n_female, shape = 9, rate = 1.5), 
+                                       rgamma(n_male, shape = 2, rate = 2)), 
+                   # Simulate gene expression data
+                   Gene1 = rnorm(n = 50, mean = 6, sd = 1), 
+                   Gene2 = c(rnorm(n = 25, mean = 7, sd = 1), 
+                             rnorm(n = 25, mean = 3, sd = 1)), 
+                   Gene3 = c(rnorm(n = 25, mean = 3, sd = .5),
+                             rnorm(n = 25, mean = 8, sd = .5))
+                   ) %>% 
+                   mutate(AbQt = log(exp((Gene2 - 6) / 2) + rnorm(50, mean = 0, sd = 1.7) + 2
+                                     )
+                          )
+data$Age <- sample(seq(25,50,1), size = 50, replace = T)
+
+# Add a gene that is Age dependent with interaction effect on sex
+data <- data %>% 
+          mutate(Gene4 = ifelse(Sex == "Male", 
+                                2 * Age + rnorm(50, mean = 0, sd = 5), 
+                                0.5 * Age + rnorm(50, mean = 0, sd = 5) + 40)) %>% 
+          relocate(Gene4, .after = Gene3)
+
+# Add a 3 factor "Condition" to illustrate the ANOVA
+data <- data %>% 
+        mutate(Condition = ifelse(Gene1 > 7, 
+                                  sample(c("Asymptomatic", "Mild", "Severe"), 
+                                         size = 50, replace = T, prob = c(0.7, 0.2, 0.1)),
+                                  sample(c("Asymptomatic", "Mild", "Severe"), 
+                                  size = 50, replace = T, prob = c(0.1, 0.4, 0.5))
+                                  )
+               )
+
+# Create a paired data set for paired t.test
+data.paired <- tibble(
+                      id = rep(1:30, each = 2), 
+                      Timepoint = rep(c("T0", "T1"), each = 30),
+                      response = c(
+                        rnorm(30, mean = 50, sd = 7), 
+                        rnorm(30, mean = 60, sd = 7)  )
+                      )
+data.paired <- data.paired[sample(rownames(data.paired), size = 60, replace = F), ]
+
+head(data)
+```
+
+</details>
+
+# 1. Null Hypothesis and Statistical Testing (NHST)
+
+In this section, we show a set of commands useful to perform statistical tests in R.
+
+## 1.1 Confidence Intervals
+
+### 1.1.1 Compute CI in R
+
+#### (a) Confidence Interval of a mean
+
+Here we'll see how to compute the confidence interval at a level of $1-\alpha$ of the mean in R. For this purpose we use the function `t.test`. We will use it soon for another purpose but we can get the CI from this function. We show here an example to compute the confidence interval at a level of 95% (1 - 0.05) of the mean of the temperature of our data.
+
+```{r}
+# Set level of confidence
+# alpha <- 0.05
+# conflevel <- 1 - alpha
+
+# Compute the CI with the t.test function
+ci_mean <- data %>% 
+              pull(Temperature) %>% # Extract the Temperature
+              t.test(x = ., # Perform t.test on Temperature
+                     conf.level = 0.95) # Set the level of confidence of the CI
+
+ci_mean$conf.int
+```
+
+The output contains 2 pieces of information:
+
+-   The borders of the CI
+
+-   The level of confidence of the CI
+
+*N.B.* To properly compute a confidence interval of the mean, your data do not need to follow a specific distribution. However to assume the normal distribution of the mean, you need enough samples (typically $n > 30$). In the [annexe](./NHST_LinearModels_Annexe.html#how-are-built-ci) we mention alternatives in the case of the number of samples is too small.
+
+#### (b) Confidence Interval of a proportion
+
+To compute the CI of a proportion, you can do so using the function `prop.test`, this function will be also used later for another purpose. Here is an example to compute the confidence interval at a level of 95% for the proportion of females in our data.
+
+```{r}
+# Set level of confidence
+# alpha <- 0.05
+# conflevel <- 1 - alpha
+
+# Compute the number of female in our data
+nfemale <- data %>% 
+                  filter(Sex == "Female") %>% 
+                  nrow() 
+
+ci_prop <- prop.test(nfemale, # Number of female
+                     n = nrow(data), # Total number of observations (nmale = n - nfemale)
+                     conf.level = 0.95)
+
+ci_prop$conf.int
+```
+
+The output is very similar to the one from the CI using `t.test`:
+
+-   The borders of the CI
+
+-   The level of confidence of the CI
+
+*N.B.* Same here, the approximation of a normal distribution for the proportion works when $n$ is big enough.
+
+For more information on the confidence interval, you can check [this section](./NHST_LinearModels_Annexe.html#confidence-intervals)
+
+## 1.2 Null Hypothesis and Statistical Testing
+
+### Comparison of quantitative variable between 2 groups
+
+```{r, echo = F}
+data %>% 
+  ggplot(aes(x = Sex, y = Temperature, fill = Sex)) +
+  geom_boxplot() + 
+  geom_jitter() +
+  theme_minimal()
+```
+
+### 1.2.1 Student's $t$-test
+
+**Reminder**: In the Student's $t$-test, we consider the following hypothesis to test:
+
+-   $H_0$ : $\mu_A = \mu_B$
+
+-   $H_A : \mu_A \neq \mu_B$ (two sided) or $\mu_A < \mu_B$ (one sided less) or $\mu_A > \mu_B$ (one sided more)
+
+-   $t$**-test assumptions**:
+
+    -   Normal distribution of the data.
+
+    -   Independance of samples (unpaired test)
+
+    In some cases in biology, the samples are not independent between groups. For example if you quantify the response of patients to a treatment at 2 different time points. You have the same samples at $T_0$ and $T_1$, a classic $t$-test cannot be applied here, you need to take into account the relationship of the samples between groups. For that you should use a paired $t$-test.
+
+#### (a) Performing a $t$-test
+
+##### Unpaired
+
+Here is an example to perform a Student's $t$-test in R. We aim to compare the mean of the body temperature between males and females from our data. We use the *formula* syntax `y ~ x` where `x` is your categorical variable containing the 2 groups and `y` the quantitative variable to compare. Note that a $t$-test can be performed only on normally distributed data, we will see later how to check for the normality of the data.
+
+```{r}
+# ?t.test
+# Using the formula and tidy syntaxe # Quantitative ~ Groups
+data %>% t.test(Temperature ~ Sex, data = ., 
+                alternative = "two.sided") 
+```
+
+You can clean this output and set it as a data frame using the function `tidy` from the `broom` package. You can use this `tidy` function with every basic statistical tests implemented in R. We will see that the `tidy` approach is particularly useful when performing multiple testing.
+
+```{r}
+data %>% 
+  t.test(Temperature ~ Sex, data = ., 
+         alternative = "two.sided") %>% 
+  broom::tidy()
+```
+
+Let's have a look at the output of `tidy` on a $t$-test. You will find the following elements:
+
+-   The estimates:
+
+    -   `estimate`: The difference between the estimated means of the 2 groups
+
+    -   `estimate1`: The estimated mean of the females (group 1).
+
+    -   `estimate2`: The estimated mean of the males (group2).
+
+-   Statistics:
+
+    -   `statistic`: Value of the Student's statistic (see Annex on $t$-test)
+
+    -   `p.value`: $p$-value derived from the Student's statistic.
+
+    -   `parameter`: degrees of freedom of the Student's statistic
+
+-   Confidence:
+
+    -   `conf.low` : lower bound of the confidence interval of the variable `estimate`.
+
+    -   `conf.high` : upper bound of the confidence interval of the variable `estimate`.
+
+-   Test:
+
+    -   `method`: The test applied on the data.
+
+    -   `alternative`: alternative hypothesis used for the test.
+
+The interpretation of the results of a $t$-test is mainly contained in the $p$-values. If the $p$-value is "low enough" then we can reject $H_0$ and therefore assume that $H_A$ is true. If $p$-value is low enough we can fairly consider that the means are different (two sided), greater (one sided) or lower (one sided). Typically we reject $H_0$ if $p < 0.05$, but this threshold can variate depending on the field/data.\
+By looking at the estimate, you can get access to the actual difference of means between the two groups. If $p$-value is low enough, you can fairly accept that this difference is different from 0.
+
+You can play with the parameters of this function `t.test` and see how it changes the output. For example you can choose to perform a one sided test.
+
+```{r}
+# One sided - less
+data %>% 
+  t.test(Temperature ~ Sex, data = ., 
+         alternative = "less") %>% 
+  broom::tidy()
+
+# One sided - greater
+data %>% 
+  t.test(Temperature ~ Sex, data = ., 
+         alternative = "greater") %>% 
+  broom::tidy()
+```
+
+For more information on the difference of the two sided and one sided $t$-test and on the $t$-statistic, you can check [this section](./NHST_LinearModels_Annexe.html#students-t-test) of the appendix.
+
+##### Paired $t$-test
+
+```{r, echo = F}
+head(data.paired)
+```
+
+The data frame `data.paired` contains the same samples between the 2 time points `T0` and `T1` therefore the hypothesis of independence between the 2 groups is not respected. We show how to apply a paired $t$-test.
+
+```{r}
+# Make sure that the data are in the same order
+data.paired_ordered <- data.paired %>% 
+                        arrange(id, Timepoint)
+
+# Extract the values for each timepoint
+responseT0 <- data.paired_ordered %>% filter(Timepoint == "T0") %>% pull(response)
+responseT1 <- data.paired_ordered %>% filter(Timepoint == "T1") %>% pull(response)
+
+# Perform t-test
+t.test(responseT0, responseT1, paired = T)
+```
+
+The output of the paired $t$-test is very similar to the unpaired version and the interpretation is the same.
+
+#### (b) Check for normality
+
+**Note that the Student's** $t$**-test relies on some hypothesis of the data!\
+**Especially, this test assumes that your data are normally distributed. In practice it's very rare to have normally distributed data and this test is still applicable on data that are "not too far" from a Gaussian distribution.
+
+What does "not too far" mean? Well a distribution that is not "too" skewed, not multi-modal (where you can see several obvious peaks) and that has a shape that overall looks like a Gaussian curve.
+
+A nice way of visualizing if your data approximately follows a normal distribution is to use Quantile-Quantile plot. This kind of plot compares the quantiles of your data to the quantiles of the theoretical normal distribution. You can easily visualize a QQ-plot using the function `ggqqplot` from the `ggpubr` library. In the case of normally distributed data, your data should follow the distribution of the theoretical quantiles, therefore follow the straight line.
+
+Here is an example on our Temperature data.
+
+```{r}
+library(ggpubr)
+
+data %>% 
+  pull(Temperature) %>% 
+  ggqqplot()
+```
+
+How do we do when the data do not follow a normal-like distribution? We go for non-parametric tests.
+
+Example of the variable `Cytokine` in the data that was generated using the gamma distribution.
+
+```{r, echo = F}
+data %>% 
+  pull(Cytokine) %>% 
+  ggqqplot()
+
+data %>% 
+  ggplot(aes(x = Cytokine)) +
+  geom_density(alpha = .4, fill = "blue") +
+  theme_bw() + 
+  xlab("Cytokine") + 
+  ylab("Density")
+```
+
+### 1.2.2 Wilcoxon-Mann-Whitney signed rank test.
+
+The Wilcoxon-Mann-Whitney signed rank test is a non parametric version of the $t$-test. It doesn't require to have normally distributed data. However it still requires some assumptions on the data:
+
+-   All the observations from both groups are independent of each other (same as $t$-test, a paired version exists).
+
+-   The response variable is *at least* ordinal. (You take two values, you can always say which one is greater/lower).
+
+-   Few, if possible none, *ex aequo.*
+
+We show here an example on the cytokine quantification in the generated data. These data *a priori* do not follow a normal distribution. For that we use the function `wilcox.test` that has a similar structure as `t.test`.
+
+```{r}
+data %>% 
+  wilcox.test(Cytokine ~ Sex, data = .) %>% 
+  broom::tidy()
+```
+
+Let's have a look at the output of `tidy` on a Wilcoxon test. You will find the following elements:
+
+-   Statistics:
+
+    -   `statistic`: Value of the statistic.
+
+    -   `p.value`: $p$-value derived from the statistic.
+
+-   Test:
+
+    -   `method`: The test applied on the data.
+
+    -   `alternative`: alternative hypothesis used for the test.
+
+Like the $t$-test, the interpretation of a Wilcoxon test is mainly contained in the $p$-value. If $p$-value is low enough we can reject $H_0$ (the ranks of the values are overall the same between the two groups) and assume $H_A$ (the ranks are overall different between the groups).
+
+Also like the $t$-test, a paired version exists with the same output type as the unpaired version. Here is an example:
+
+```{r}
+# Make sure that the data are in the same order
+data.paired_ordered <- data.paired %>% 
+                        arrange(id, Timepoint)
+
+# Extract the values for each timepoint
+responseT0 <- data.paired_ordered %>% filter(Timepoint == "T0") %>% pull(response)
+responseT1 <- data.paired_ordered %>% filter(Timepoint == "T1") %>% pull(response)
+
+# Perform t-test
+wilcox.test(responseT0, responseT1, paired = T)
+```
+
+### 1.2.3 Visualization
+
+To compare a quantitative variable to a categorical explanatory variable you visualize it using a boxplot with eventually a violin plot or jitter. Also, if you have performed a statistical test before, you can add the resulted $p$-value on your plot. For that you can use the function `geom_signif` from the `ggsignif` package. Here is an example of how to do it:
+
+```{r}
+library(ggsignif)
+
+# Extract the p-value
+pval <- data %>% 
+          wilcox.test(Cytokine ~ Sex, data = .) %>% 
+          broom::tidy() %>% 
+          pull(p.value)
+
+# format pvalue into text
+pval.char <- formatC(pval, # Make the pval a character
+                     2 ) # With a round of 2 decimals
+
+data %>% 
+  ggplot(aes(x = Sex, y = Cytokine, fill = Sex)) +
+  geom_violin() +
+  geom_boxplot(width = .1, fill = "white") +
+  geom_signif(annotation = pval.char, # Add the pval text in the annotation
+              xmin = 1, xmax = 2, # Set position 1 = group1 (female), 2 = group2 (male)
+              y_position = 11) + # Set position of the annotation on the y-axis
+  ylab("Cytokine") +
+  theme_bw()
+
+```
+
+### 1.2.4 Multiple Testing
+
+Sometimes there is a need to apply the same statistical test to a higher number of variables. For example in differential expression analysis, the same statistical test is applied across all the genes.
+
+Here is an example to apply a Wilcoxon test across all the genes in our simulated data frame to compare Gene Expression and Sex. Then, we adjust the $p$-values ([see here](./NHST_LinearModels_Annexe.html#multiple-testing)). We are using the *tidy* approach using `map_dfr` from the `purrr` package to apply the analysis across selection of variables of the data frame. We are also using the `tidy` function from the `broom` package to clean the results of the output of the statistical tests functions (here `wilcox.test`).
+
+```{r}
+# Create a vector of the variables 
+gene_vector <- c('Gene1', 'Gene2', 'Gene3')
+
+# Apply wilcoxon test on all the genes and collect the results
+wilcox_res <- purrr::map_dfr(gene_vector,# Apply the following instructions on these variables
+                             ~ {
+                                # wilcoxon test of one of the genes compared to Sex
+                                test_res <- wilcox.test(data[[.x]] ~ data$Sex)
+                                # Clean the result using the tidy function 
+                                broom::tidy(test_res) %>% 
+                                  mutate(genes = .x) # and track the tested gene
+                                }
+                             )
+
+# Correction of pvalues
+wilcox_res <- wilcox_res %>% 
+              mutate(p.adj = p.adjust(p.value, method = 'fdr'))
+
+print(wilcox_res)
+```
+
+### Comparison of a quantitative variable to a categorical variable with more than 2 factors
+
+The number of pairwise comparison increase quadratically with the number of groups (see slides or appendix). We have seen that increasing the number of tests can increase the risk of getting a type I error. The ANOVA (and its non-parametric alternatives) allows to test if at least one group is different from another. Doing so we lose information but gain in statistical power.
+
+For more details on this subject [see here](./NHST_LinearModels_Annexe.html#comparison-of-quantitative-variables-to-a-categorical-variable-with-more-than-2-factors).
+
+```{r, echo = F}
+data %>% 
+  ggplot(aes(x = Condition, y = Gene1, fill = Condition)) +
+  geom_boxplot() +
+  geom_jitter() +
+  scale_fill_manual(values = c("Asymptomatic" = "#08C5D1", 
+                               "Mild" = "#FFBF66", 
+                               "Severe" = "#D46F4D")) +
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+### 1.2.5 One Way ANOVA
+
+Some [reminders](./NHST_LinearModels_Annexe.html#one-way-anova) on the ANOVA:
+
+-   The ANOVA relies on key assumptions:
+
+    -   The independence of samples (which mean it **cannot be used for paired analysis**)
+
+    -   The normality of the residuals ($\varepsilon \sim \mathcal{N} (0, \sigma^2)$)
+
+    -   The homoscedasticity (i.e. stability of variance) between groups.
+
+-   While performing the ANOVA, we're interested in the following hypothesis:
+
+    -   $H_0$ : the means of all the group are equal.
+
+    -   $H_A$ : at least one group with a mean different from another.
+
+Here is an example to perform a one way ANOVA to compare the expression of Gene1 across the 3 groups of the `Condition` variable: `Asymptomatic`, `Mild`, `Severe`.
+
+```{r}
+data %>% 
+  aov(Gene1 ~ Condition, data = .) %>% 
+  broom::tidy()
+```
+
+Once again, the main information in interpreting the result of the test is contained in the $p$-value. If $p$-value is low enough (typically $< 0.05$), then we reject $H_0$ (the means of all groups are equal) and accept $H_A$ (at least one group has a mean different from another group). However, this does not bring information about which groups are different, just that at least one group is significantly different from another one. To get this informtion, you would need to perform a *post-hoc* analysis (see <https://www.datanovia.com/en/lessons/anova-in-r/>).
+
+### 1.2.6 Kruskal-Wallis test
+
+Like the $t$-test, the ANOVA is a parametric test requires the data to follow some hypothesis. If the data do not follow these hypothesis, an alternative is to use the non-parametric version of the one way ANOVA: the Kruskal-Wallis test.
+
+Here is an example to perform the Kruskal-Wallis test on the same data:
+
+```{r}
+data %>% 
+  kruskal.test(Gene1 ~ Condition, data = .) %>% 
+  broom::tidy()
+```
+
+The interpretation on the $p$-value here is very similar to the one from the ANOVA test.
+
+### Comparison of qualitative variables
+
+The scenario where we have to compare categorical variables happens a lot in biology. You may have to compare the effect of a treatment (Control/Treatment) to the condition of your patients/subjects (Healthy/Disease). To compare qualitative variables, we can compute proportions and compare them to expected proportions.
+
+### 1.2.5 Proportion test
+
+Reminder on proportion test:
+
+-   $H_0$ : $\hat{p} = p$
+
+-   $H_A$ : $\hat{p} \neq p$
+
+Here is an example on how to perform a proportion test on the simulated data. We want to compare the proportion of males and female to the theoretical 50%.
+
+```{r}
+# Extract the number of males in the table
+nmale <- data %>% 
+            filter(Sex == "Male") %>% 
+            nrow()
+
+# Extract total number of observations
+n_tot <- nrow(data)
+
+prop.test(nmale, n_tot, p = 0.5) %>% 
+  broom::tidy() # Clean the output
+```
+
+The main information in interpreting the result of the test is contained in the $p$-value. If $p$-value is low enough (typically $< 0.05$), then we reject $H_0$ (the true proportion of my sample is equal to the proportion 0.5) and accept $H_A$ (the true proportion of my sample is different from 0.5). In our case, we have $p = 0.20 > 0.05$, we cannot reject $H_0$.
+
+### 1.2.6 $\chi^2$ contingency table test
+
+To perform a $\chi^2$ contingency table test, the first step is to get the contingency table. This can easily be done using the function `table`.
+
+Here we show an example to compute the contingency table of the variables Smoking and Sex. This will be useful to compute the $\chi^2$ test to see eventual associations between the smoking variable and sex in our data.
+
+```{r}
+# ?table
+conttable <- data %>% 
+              select(Sex, Smoking) %>% # Select the variable you want to compare in the chi2
+              table()
+print(conttable)
+```
+
+In this case, the hypothesis to test for the contingency table are:
+
+-   $H_0$ : The distribution of smoker and non smoker is the same or male and female.
+
+-   $H_A$ : The distribution of smoker and non smoker **is not** the same or male and female.
+
+Here is an example to compute the $\chi^2$ contingency table test to compare Sex and Smoking variables form our data set.
+
+```{r}
+chi2res <- chisq.test(conttable)
+
+chi2res %>% broom::tidy()
+```
+
+Here, we have $p = 0.012 < 0.05$, so we can reject $H_0$ and assume that the distribution of smokers and non smokers is not the same between male and female.
+
+You can check for Expected values by looking at the `expected` attribute from the `chisq.test` output. This allows to check if a $\chi^2$ can be properly applied (the expected values of every combination of factors should be greater than 5).
+
+```{r}
+chi2res$expected
+```
+
+For more information about $\chi^2$ test you can [see here](./NHST_LinearModels_Annexe.html#chi2-contingency-table-test).
+
+# 2. Linear models
+
+Some [reminders](./NHST_LinearModels_Annexe.html#linear-models) on the linear regression:
+
+$$
+y_{i} = \beta_0 + \beta_1 x_{i, 1} + \beta_2 x_{i, 2} + ... + \beta_p x_{i, p} + \varepsilon_i
+$$
+
+Linear models are subject to a number of assumptions which ensure that the estimation of the parameters works properly. We will see how to verify these assumptions.
+
+-   **Homoscedasticity of the error**: this means that the variance of the error terms ($\varepsilon_i$) is assumed to be constant. $\forall i, Var(\varepsilon_i) = \sigma^2$
+
+-   **Normality of the error:** this hypothesis requires that the error terms ($\varepsilon_i$) follows a normal distribution. $\forall i, \varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
+
+-   **Independence of errors:** $Cov(\varepsilon_i,\varepsilon_j) = 0$.
+
+-   **Non collinearity of the explanatory variables** (for multiple linear models only, *c.f* dedicated section).
+
+Linear models can be used for many purposes depending on the field. It can be used for prediction, if you have a new set of values $\{x_i\}$ you want to predict the resulted $y$. Though, in biology, it is very rare to use it as a prediction tool. It can also be used as a statistical test tool. We will see in this part how to test for associations between the response variable and the explanatory variables by applying a statistical test on the coefficients.
+
+## 2.1 Simple linear models
+
+Case where we want to solve the problem $$ y = \beta_0 + \beta_1 x_1 $$
+
+### 2.1.1 Data visualization
+
+A key point, before applying any method is to visualize your data. This will allow you to know if your data need to undergo some transformations, to notice eventual outliers or any other problem. [See here for extra on visualization](./NHST_LinearModels_Annexe.html#data-visualization).
+
+So here, the first step is to visualize the expression of Gene2 as a function of the Cytokine.
+
+```{r}
+data %>% 
+  ggplot(aes(x = Cytokine, y = Gene2)) +
+  geom_point() + 
+  geom_smooth(method = "loess") +
+  theme_bw() + # Optional to change the theme of the plot
+  xlab("Cytokine") # Optional change the x axis title
+```
+
+In this plot we notice that the expression of Gene2 seems to increase with the Cytokine. However, the relationship between the two variables does not seem to be "linear", instead it appears to be more a "logartithmic" relationship.
+
+In this kind of situation, we can still fall back to a linear relationship if we log-transform the metablolic score.
+
+```{r}
+data.log <- data %>% 
+            mutate(logCyto = log(Cytokine)) 
+
+data.log %>% 
+  ggplot(aes(x = logCyto, y = Gene2)) +
+  geom_point() + 
+  geom_smooth(method = lm, color = "red") +
+  theme_bw() + 
+  xlab("log(Cytokine)")
+```
+
+*N.B*. in the previous plot, we use the function `geom_smooth` with the method `lm` (for linear model) to add the fitted regression line directly on the plot. In the next section we are going to see how we can compute the coefficients that are necessary to get this regression line.
+
+### 2.1.2 Performing a simple linear model in R
+
+Now that we have log-transformed our data, we can assume that there is a linear relationship between the Cytokine and the expression of Gene2. For this purpose, we will use the function `lm` and use the *formula* syntax `y ~ x`. Then we use the function `summary` to get useful information regarding our model.
+
+```{r}
+fit <- data.log %>% 
+          lm(Gene2 ~ logCyto, data = .)
+
+summary(fit)
+```
+
+Once again, you can use the `tidy` function to clean the output of your linear model and get the interesting part: coefficients and their associated $p$-values.
+
+```{r}
+fit %>% broom::tidy()
+```
+
+Let's have a look at the output of `tidy` on a fitted linear regression. You will find the following elements:
+
+-   Model:
+
+    -   `term`: name of the variables included in the model
+
+    -   `estimate`:
+
+        -   `(Intercept)`: $\beta_0$
+
+        -   `logCyto`: $\beta_1$
+
+-   Statistics
+
+    -   Part used to determine if the coefficients are significantly different from 0.
+
+        -   `statistic`: Student's statistic value of $\frac{\beta_j}{\mathrm{SE}(\beta_j)}$
+
+        -   `p.value`: $p$-value derived from the statistic.
+
+            -   $H_0$ : $\beta_j = 0$
+
+            -   $H_A$ : $\beta_j \neq 0$
+
+In this example, we have: $\hat{\beta}_{logAb} = 1.26$ and we know that $\beta_{logAb} \neq 0$ because $p = 3.06 \times 10^{-7} < 0.05$
+
+$$
+y_{Gene2} = 4.34 + 1.26 x_{logAb}
+$$
+
+This is the equation of the regression line obtained in the plot above.
+
+You can extract other information present in the summary of the data using `broom::glance`.
+
+```{r}
+fit %>% broom::glance()
+```
+
+In this table you can find a lot of information, but we will focus on the following:
+
+-   `r.squared` and `adj.r.squared`:
+
+    -   $R^2$ is the percentage of explained variance of your model. The higher (closer to 1) the better. This metric is an indicator of the performances of your model. However, this metric does not include the number of variables in your model. The adjusted $R^2$ accounts for the number variables and is a better indication of the effectiveness of the model. In this example, our model explains $\sim 41\%$ of the variance of the data, which means that $\sim 60\%$ remains unexplained and may be due to other unknown variables.
+
+-   `statistic` and `p.value`:
+
+    -   The Fischers's statistic that tells if the model is significant. It's the case when at least one of the coefficient is significantly different from 0. Here, we're in the case of a simple linear models, so this statistic is the same as the one for the specific coefficient. In multiple linear models this statistic will be different.
+
+If you want to find information about other features from `glance`, you can have a look to this document: <https://rc2e.com/linearregressionandanova>.
+
+### 2.1.3 Evaluating the model
+
+When performing a linear model it is important to check the assumptions of the linear model. Unlike $t$-test, checking for the assumptions can only be done once the model is applied.
+
+You can easily check them by using the base function `plot` on your model. This will return 4 plots:
+
+-   **Residuals vs Fitted values:** this is to check the assumption of the linear relationship between $y$ and the set of $\{x_j\}$. In case of linear relationship, we would expect a centered distribution of the residuals around a flat red line of reference.
+
+-   **Normal QQ:** This checks the normality of the residuals. The dots should follow the dotted line.
+
+-   **Scale Location:** This checks for the homogeneity of the variance (homoscedasticity). Dots should fall around a red flat line.
+
+-   **Residuals vs Leverage:** This checks for outliers. Non outliers dots will fall inside the contour lines?
+
+```{r}
+par(mfrow = c(2,2)) # To get the four plots in the same plot (create a grid 2x2)
+plot(fit)
+```
+
+We can also get a prettier diagnostic of our model using other packages:
+
+```{r}
+if (require("performance")) { # Execute the following line only if performance is installed
+  check_model(fit, check=c("linearity", "qq", "normality","homogeneity", "outliers"))
+}
+if (require("ggfortify")) { # Execute the following line only if performance is installed
+  ggplot2::autoplot(fit)
+}
+```
+
+## 2.2 Multiple Linear models.
+
+This is the general case of linear models. We want to explain a variable $y$ with a set of $p$ explanatory variables $\{x_j\}_{1\leq j \leq p}$ such that:
+
+$$
+y = \beta_0 + \beta_1 x_1 + ... + \beta_p x_p
+$$
+
+Why do we do multiple linear models? In biology, a single marker can be influenced by a wide set of conditions/variables. A multiple linear model can be used to capture these relationships together. Also, in a simple linear model the response of $y$ to $x_1$ can be biased by another variable $x_2$. Multiple models make it possible to isolate the pure effect of each variable while controlling for the others, thus minimising the bias due to confounding variables. Also, it allows to take into account interactions of variables (see dedicated section).
+
+In this section we will perform a multiple linear model comparing the expression of Gene2 to the log transformed Cytokine (logCyto) and the quantification of an antibody (AbQt).
+
+$$
+y_{Gene2} = \beta_0 + \beta_{logCyto} x_{logCyto} + \beta_{AbQt} x_{AbQt}
+$$
+
+### 2.2.1 Check for multi-collinearity
+
+But before applying the multiple linear model there is an important hypothesis to check: the non collinearity of the covariates.
+
+![](images/clipboard-1853439655.png)
+
+So here we can visualize if the covariates are collinear using the `plot` function from the base R or the function `ggpairs` from the `GGally` package.
+
+```{r}
+# Using GGally::ggpairs
+data.log %>% 
+  select(Gene2, logCyto, AbQt) %>% 
+  GGally::ggpairs()
+```
+
+### 2.2.2 Performing the multiple linear model
+
+The different covariates $x_j$ are also called **additive** variables. In R, the formula syntax will follow this "additive" idea and you can add covariates in your model using `y ~ x1 + x2 + ... + xp`.
+
+Here is an example of a multiple linear model in R.
+
+```{r}
+# View(data.log)
+fit_mlm <- data.log %>% 
+            lm(Gene2 ~ logCyto + AbQt, data = .)
+            
+summary(fit_mlm)
+
+# You can also use the tidy approach 
+data.log %>% 
+  lm(Gene2 ~ logCyto + AbQt, data = .) %>% 
+  broom::tidy()
+
+# or direclty
+# fit_mlm %>% broom::tidy()
+```
+
+Here, both the cytokine and the antibody seem to have a significant impact the expression of Gene2 ( $\hat{\beta}_{logCyto} = 1.11,~p = 1.16 \times 10^{-6}$ and $\hat{\beta}_{AbQt} = 1.15,~p = 2.58 \times 10^{-3}$). And therefore we have:
+
+$$
+y_{Gene2} \simeq 3.39 + 1.11 x_{logCyto} + 1.15 x_{AbQt}
+$$
+
+Same as simple linear models, you can use the function `broom::glance` to extract information about the adjusted $R^2$, $F$-statistic (and $p$-value), AIC...
+
+```{r}
+fit_mlm %>% broom::glance()
+```
+
+Here, we can consider that our model explains around $50\%$ of the variance of our data, and that the model is significant ( $p = 2.39 \times 10^{-8} < 0.05$, which means at least one coefficients is significantly different from 0).
+
+#### Likelihood ratios
+
+So by adding `AbQt` as a covariate we improved the percentage of explained variance of our model from $\sim40\%$ to $\sim 50\%$. But is this increase of explained variance significant? Have we significantly improved the model? A good way to check that is to apply an ANOVA between the reduced model and the more complex model.
+
+```{r}
+anova(fit, fit_mlm, test = "LRT")
+```
+
+### 2.2.3 Interactions (Advanced)
+
+#### **Visualization**
+
+A nice way to visualize the interaction between a continuous variable and a categorical variable is to combine `geom_smooth` with the color parameter and see eventual different lines. For example if we were to study the interaction between the Age and Sex to explain the expression of Gene4, we could do as follows:
+
+```{r}
+data.log %>% 
+  ggplot(aes(x = Age, y = Gene4)) +
+  geom_point() +
+  geom_smooth(aes(color = Sex), method = lm) # Regression line for each group Male/Female
+```
+
+#### Implementation
+
+To perform a linear model with interaction to test if this interaction is significant you can proceed as follows:
+
+-   Add the interaction term using the character `:` $\mapsto$ `Age:Sex`
+
+-   Or just use the syntax `*` : `Age*Sex` $\Leftrightarrow$ `Age + Sex + Age:Sex` (quicker but less explicit)
+
+```{r}
+# Using :
+data.log %>% 
+  lm(Gene4 ~ Age + Sex + Age:Sex, data = .) %>% 
+  broom::tidy()
+
+# Using *
+data.log %>% 
+  lm(Gene4 ~ Age*Sex, data = .) %>% 
+  broom::tidy()
+```
+
+### 2.2.4 Multiple Way Anova and Interactions (Advanced)
+
+```{r, echo = F}
+data %>% 
+  ggplot(aes(x = Condition, y = Gene1, fill = Sex, color = Sex)) +
+  geom_boxplot() +
+  geom_jitter(position = position_jitterdodge()) +
+  scale_color_manual(values = c("Female" = "darkred", "Male" = "darkblue")) +
+  theme_bw() + 
+  theme(legend.position = "none")
+```
+
+Something that we did not really mention is that the concepts of linear models and ANOVA are very similar and actually we can perform ANOVA with more than one variable. And also we can add an interaction term.
+
+#### Two Way ANOVA
+
+Here is an example to adjust our ANOVA model using Sex as a covariate to compare the expression of Gene1 to the different Conditions
+
+```{r}
+data.log %>% 
+  aov(Gene1 ~ Condition + Sex, data = .) %>% 
+  broom::tidy()
+```
+
+#### ANOVA with interactions
+
+Here is an example to add an interaction term in the ANOVA. It is the same syntax as for the linear models.
+
+```{r}
+data.log %>% 
+  aov(Gene1 ~ Condition + Sex + Condition:Sex, data = .) %>% 
+  broom::tidy()
+```
+
+## 2.3 Logistic Regression (Advanced)
+
+Here we show an example to perform logistic regression using `glm` (Generalized Linear Model) and specifying the family as `binomial` for log-regression. We wan to test for eventual associations bewteen Sex and Gene2. Here we can see the variable `Sex` as a numeric value $\{0,1\}$. For this you need to make sure that the variable is either encoded a as numeric either as a factor. [See here for more details on logistic regression](./NHST_LinearModels_Annexe.html#logistic-regression-bonus)
+
+```{r}
+data %>% 
+  mutate(Sex = as.factor(Sex)) %>% # Set factor for sex
+  glm(Sex ~ Gene2, data = ., family = binomial) %>% # Perform logistic regression
+  broom::tidy()
+```
+
+## 2.4 More Advanced Methods to perform linear models - `limma` (Advanced)
+
+### Generation of simulated data
+
+<details>
+
+<summary>Show new simulated data set</summary>
+
+```{r}
+# Set random seed for reproducibility
+set.seed(47193)
+
+# Generate variables of Age and Sex
+n <- 500
+Age <- sample(seq(20,80,1), size = n, replace = T)
+Sex <- sample(c("Male", "Female"), size = n, replace = T)
+
+# Create Expression matrix
+genes <- matrix(rnorm(n * 100, mean = 0, sd = 1), 
+                nrow = n, ncol = 100)
+colnames(genes) <- paste0("Gene", 1:100)
+
+# Create artificial associations
+for (gene in sample(colnames(genes), size = 30, replace = F)){
+  genes[, gene] <- genes[, gene] + 0.05 * Age + rnorm(n, 0, 0.5) # Age association
+}
+for (gene in sample(colnames(genes), size = 30, replace = F)){
+  p <- ifelse(sample(c(1,2), size = 1) == 1, 1, -1) * .2
+  genes[, gene] <- genes[, gene] + ifelse(Sex == "Male", p, -p) + rnorm(n, 0, 1.2) # Sex association
+}
+
+# Combine data
+gene_exp_data <- data.frame(Age = Age, Sex = Sex, genes)
+
+# Check
+head(gene_exp_data)
+```
+
+</details>
+
+### Performing `limma` linear models
+
+We show here the different steps to perform a linear model using `limma` across all the genes in a table of transcriptomic data (`gene_exp_data`) .
+
+#### (a) Create the design matrix of the model
+
+The goal here is to prepare a matrix indicating to `limma` what are going to be the variables that will be used to fit the model.
+
+```{r}
+design <- model.matrix(~ Sex + Age, data = gene_exp_data)
+```
+
+#### (b) Prepare the data for `limma`
+
+Here we extract the gene expression values and put it in the format required by `limma`:
+
+-   A matrix, not a tibble/data frame.
+
+-   Variables in rows, Subjects in columns
+
+```{r}
+# Get the names of the genes
+gene_vector <- colnames(gene_exp_data)[3:ncol(gene_exp_data)]
+
+# Prepare the data for limma
+expr_matrix <- gene_exp_data %>% 
+                select(all_of(gene_vector)) %>% # Select the genes and exclude the non useful variables
+                as.matrix() %>%                 # Set the data as a matrix and not a tibble
+                t()                             # Transpose the matrix to have genes in rows and subjects in columns
+```
+
+#### (c) Fit the linear model using `lmFit` from the `limma` package
+
+```{r}
+# Fit the model
+fitlm <- lmFit(expr_matrix, design)
+```
+
+#### (d) Bayesian adjustment
+
+This type of model is used especially for high dimensional data. That is typically the case for omic studies. When performing models on high dimensional data, we face two main issues:
+
+-   Variability of the estimated variances
+
+-   High number of test performed
+
+The package `limma` allows to directly and implicitly tackle these issues. Especially the function `eBayes` from this package allows a Bayesian estimation of the variance. This improves the robustness of the results.
+
+```{r}
+# Adjsut the model
+fitlm <- eBayes(fitlm)
+```
+
+#### (e) Get the results for each variables
+
+```{r}
+# For Age
+res_age <- topTable(fitlm, coef = "Age", number = Inf) %>% 
+            mutate(variable = "Age") %>% # Add the information of the variable in the data frame
+            mutate(Genes = rownames(.))
+
+# For Sex
+res_sex <- topTable(fitlm, coef = "SexMale", number = Inf) %>% 
+            mutate(variable = "SexMale") %>% # Add the information of the variable in the data frame
+            mutate(Genes = rownames(.))
+
+# Combine both results in the same table
+limma_res <- bind_rows(res_age, 
+                       res_sex)
+rownames(limma_res) <- NULL # remove rownames of the table
+
+head(limma_res)
+```
+
+The interpretation of this result is mainly contained in the `logFC` and `adj.P.Val` variables. The `logFC` ($\log_2$ Fold-Change) is the $\log_2$ transformation of the ratio of increase of the response variable per unit of the explanatory variable.
+
+-   For the case of Age, if the gene is increased by 2 for an increase of 1 year, then the fold-change is 2 and the $\log_2(\mathrm{Fold-Change}) = \log_2(2) = 1$. Similarly, if the expression gene is decreased by 2 for an increase of one year, then the fold-change is 0.5 and the $\log_2(FC) = \log_2(0.5) = -1$.
+
+-   For the case of Sex (a categorical variable), the fold-change is the ratios of the expression of the gene between male and female (set as the reference sex). For example if a gene is on average 2 times more expressed in males than females, then the fold-change is 2, and therefore the $\log_2(FC) = 1$.
+
+*N.B.* The use of $\log_2$ transformation in fold-change allows an easy readibility on the actual fold-change. The $\log_2$ being the reverse function of the powers of 2, we know that a $\log_2 (FC)$ of 1 corresponds to a factor 2, $\log_2 (FC) = 2 \rightarrow 2^2 = 4$, $\log_2 (FC) = 3 \rightarrow 2^3 = 8$, $\log_2 (FC) = 4 \rightarrow 2^4 = 16$...
+
+Here, the $p$-value corresponds to the $t$ statistic given in the table too. It tests for the following hypothesis:
+
+-   $H_0$ : $\log_2 (FC) = 0$
+
+-   $H_A$ : $\log_2 (FC) \neq 0$
+
+With a low enough $p$-value, we can consider that the $\log_2 (FC)$ is significantly different from 0.
+
+#### (f) Visualization of the results
+
+To visualize the results of the linear models from `limma` you can make a volcano plot.
+
+Here is an example to plot the result to for the Sex variable
+
+```{r}
+# log Transform p-values
+res_sex <- res_sex %>% 
+                mutate(log.p.adj = -log10(adj.P.Val)) %>% 
+                mutate(is.signif = adj.P.Val < 0.05)
+
+# Use ggplot
+res_sex %>% 
+  ggplot(aes(x = logFC, y = log.p.adj, color = is.signif)) +
+  geom_point() + # Scatter plot of -log10(FDR) ~ log2(Fold-Change)
+  geom_hline(yintercept = -log10(.05), linetype = "dashed") + # Add a dahsed line to separate significant genes
+  scale_color_manual(values = c("TRUE" = "blue", "FALSE" = "grey")) + # Choose the colors
+  ggrepel::geom_text_repel(aes(label = ifelse(is.signif, Genes, "")), # Add labels of the genes
+                           size = 3, max.overlaps = Inf) +
+  xlab("log2(Fold-Change)") + # Eventually change axis titles
+  ylab("-log10(FDR)") +
+  theme_bw() +
+  theme(legend.position = "none")
+```

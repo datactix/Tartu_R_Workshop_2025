@@ -1,0 +1,656 @@
+---
+title: "Null Hypothesis Statistical Testing & Linear Models"
+subtitle: "Practice"
+format:
+  html:
+    toc: true
+    toc-location: left
+    toc-depth: 3
+    toc-title: "Table of content"
+editor: visual
+---
+
+# Set up
+
+## Set Quarto up
+
+<details>
+
+<summary>Show code</summary>
+
+```{r setup}
+# No warnings or supplementary message in the html
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+</details>
+
+## Load useful packages
+
+```{r}
+# Data manipulation
+library(tidyverse)
+
+# Visualization
+library(ggplot2)
+library(ggsignif)
+
+# Modeling 
+library(limma) # c.f. 2.4
+```
+
+## Import Data in the R environment
+
+Read the data of gene expression, cell type, and samples information table.
+
+```{r}
+# Variable not of interest
+var_to_remove <- c("Temperature", "HeartRate", "Employed", "Education", "Income",
+                   "HoursOfSleep", "TroubleSleeping", "PhysicalActivity", "VaccineFlu",
+                   "VaccineHepA", "VaccineHepB", "VaccineMMR", "VaccineTyphoid", "Visit", 
+                   "batch.NS", "batch.TruCult")
+# Load Expression data
+Expr <- read.csv(file = here::here("data/curated_datasets/MI_Nanostring-eCRF_Curated.tsv"),
+                 sep = "\t", header = T) %>% 
+        select(-any_of(var_to_remove)) %>% 
+        filter(!is.na(Stimulus))
+
+# Load facs data and the annotation
+facs <- read.csv(file = here::here("data/curated_datasets/MI_Cytometry-eCRF_Curated.tsv"),
+                 sep = "\t", header = T) %>% 
+        select(-any_of(var_to_remove)) %>% 
+        rename_with(~ gsub("\\.panel\\d*", "", .), everything()) %>% 
+        rename_with(~ gsub("^N_", "", .), everything())
+facs_annot <- read.csv(file = here::here("data/facs_annotation.tsv"), sep = "\t", header = T)
+
+# Load donors' information
+MIdonors <- read.csv(file = here::here("data/curated_datasets/MI_eCRF_Curated.tsv"), 
+                     sep = "\t", header = T) %>% 
+            select(-any_of(var_to_remove))
+```
+
+# 1. Null Hypothesis and Statistical Testing (NHST)
+
+## 1.1 Confidence Intervals
+
+### (a) Compute a confidence interval using a pre-implemented R function
+
+Compute the confidence interval of the mean of the expression of the gene IL6 for samples stimulated with *E. coli* at a level of confidence of 95%.
+
+```{r}
+# Extract the expression of IL6 for E. coli stimulation
+
+
+# Compute the t.test
+
+
+# Get Confidence Interval of the mean
+
+
+# Display results
+```
+
+### (b) Compute a confidence interval from scratch (bonus)
+
+Given the CI of the mean ($\mu$) at a level of confidence $\alpha$ formula $\left[\bar{X} + u_{\alpha /2} \frac{\sigma}{\sqrt{n}} ; \bar{X} + u_{1 - \alpha/2} \frac{\sigma}{\sqrt{n}}\right]$, compute the confidence interval of the mean of the expression of the gene IL6 for samples stimulated with *E. coli* at a level of 95%.
+
+*Little helper* : quantiles of the normal distribution can be computed with `qnorm` (`?qnorm`)
+
+```{r}
+# Work with the expression data for E.coli stimulation and IL6 genes
+
+
+# Compute number of observations
+
+
+# Get normal distribution quantile
+
+
+# Compute parameters of the population
+
+
+# Confidence Interval 95%
+
+
+# Display results
+
+```
+
+## 1.2 Statistical testing
+
+In this section you are going to perform statistical tests to compare both quantitative and categorical variables.
+
+### 1.2.1 Quantitative comparison between 2 groups
+
+In this part, we will compare a quantitative variable (e.g. gene expression, temperature, cell counts...) between two groups (e.g. Sex, treatment/control, seropositive/seronegative...).
+
+#### Your first statistical test
+
+Compare the level of expression of the genes TNF and CD5 under SEB stimulation to Sex. For that, based on the distribution of the data, choose the right test to perform.
+
+-   **What distribution do the data follow ?**
+
+    ```{r}
+    library(ggpubr)
+
+    ```
+
+    *Comment the results*: ...
+
+-   **Perform the** **adapted test**
+
+    Perform and interpret the result of the test to compare the level of TNF and CD5 between Sex for *E. coli* stimulated samples.
+
+    ```{r}
+    # Perform t-test
+
+    ```
+
+    *Comment the results*: ...
+
+-   **Visualize the results**
+
+    Use a boxplot representation of the data (and eventually violin or jitter) to visualize the results of the test. Add the $p$-values on top of your plot.
+
+    ```{r}
+    # First, represent TNF
+
+        
+    # Then, show CD5 results
+
+    ```
+
+#### Performing a paired test
+
+In the PCA section, we have seen that the expression of the gene CXCL11 was driving the distinction of the clusters Null and IAV. Have a look at the distribution of the gene CXCL11 for both Null and Influenza A virus stimulus. What test should you apply if you want to compare the donors between the Null and the IAV for the expression of this gene?
+
+```{r}
+
+```
+
+*Test to apply* : ...
+
+Perform the appropriate test and comment on the results.
+
+```{r}
+# Order the data frame 
+
+# Extarct orderd vectors
+
+# Perform test
+```
+
+*Comments on results*: ....
+
+#### Another gene, another test
+
+Now, visualize the distribution of the gene SERPING1 and IL7 for influenza A (IAV) stimulus. What can you say?
+
+```{r}
+# Prepare the data for IAV stimulation
+
+# Visualize the distribution of the genes 
+
+```
+
+*Comment the output:*
+
+Perform the appropriate test to compare the expression of SERPING1 to Sex fir Influenza A stimulus and visualize this differences with boxplots. Add the $p$-value on your boxplot.s
+
+```{r}
+# Perform approporiate tests
+
+# Visualize the results with a boxplot
+## First, represent IL7
+    
+## Then, show SERPING1 results
+```
+
+*Comment the results*:
+
+#### (c) Multiple testing
+
+So far, you have seen how to perform both $t$-test and Wilcoxon test on a given variable (for a given gene). However, in the gene expression table, there are 560 immune genes. In this exercise, you will use the package `broom` and `purrr` to perform a Wilcoxon test for Sex differences across all the genes for the *S. aureus* stimulus.
+
+```{r}
+# Get the gene expression table for S. aureus stimulus 
+
+
+# Get the gene names (the variables to apply the test on)
+# gene_vector <- 
+  
+# Apply wilcoxon test on all the genes and collect the results
+# wilcox_res_hksa <- purrr::map_dfr(gene_vector, 
+#                                   ~ {
+#   # test instructions
+#                                     
+#   # clean results
+#   
+#   })
+```
+
+Here, you performed 560 tests, what do you need to do?
+
+```{r}
+
+```
+
+**Bonus**: Visualize the results with a barplot of the adjusted $p$-values.\
+*Little helper:* using a $\log_{10}$ transformation of the $p$-values might help for the visualization.
+
+```{r}
+
+```
+
+### 1.2.2 Quantitative comparison across several groups
+
+#### (a) One way ANOVA
+
+Using the function `aov`, perform an ANOVA to compare the counts of all the cell types in the FACS data to the Smoking status. You can use the `map_dfr` function to apply the test across all the cell types and do not forget to adjust the $p$-values.
+
+```{r}
+# Add the Smoking information of the donors in the data before testing
+
+# Get all the cells to test
+
+
+# Perform multiple test
+
+# Correct for multiple testing
+
+```
+
+**Bonus:** What are the cells that are significantly differently represented between the smoking groups of MI? Are these cells more related to the innate or the adaptive immune response? **(bonus)**
+
+```{r}
+
+```
+
+Fit a single model to compare the total number of cells between sex. Have a look at the normality of the residuals, what can you say? **(bonus)**
+
+*Little helper*: you can try to find the `residuals` attribute in the output of the raw ANOVA.
+
+```{r}
+# Fit the ANOVA model
+
+
+# Get the QQ-plot
+
+```
+
+*Comment on the results*:
+
+#### (b) Kruskal-Wallis
+
+Perform a Kruskall-Wallis test to make the same analysis as with the ANOVA but with a more appropriate test.
+
+```{r}
+
+```
+
+*Note that the Kruskall-Wallis test is an alternative to the **one-way** ANOVA, however, it does not cover the other types of ANOVA. If you want to go further, you can check the Friedman's test* (`?friedman.test`).
+
+### 1.2.4 Comparison categorical variables
+
+#### $\chi^2$ contingency table test
+
+Build the contingency table and test if there is a difference in CMV seropositivity prevalence between male and female in the MI cohort. Is there a serostatus more represented for females? for males?
+
+Before applying the test, clearly define $H_0$ and $H_A$ :
+
+-   $H_0$ : ...
+
+-   $H_A$ : ...
+
+```{r}
+# Get the contingency table
+
+# Perform Chi2 test
+
+```
+
+*Comment on the results*:
+
+# 2. Linear Models
+
+#### Hypothesis and conditions
+
+Linear models are subject to a number of assumptions which ensure that the estimation of the parameters works properly. We will see how to verify these assumptions.
+
+-   **Homoscedasticity of the error**: this means that the variance of the error terms ($\varepsilon_i$) is assumed to be constant. $\forall i, Var(\varepsilon_i) = \sigma^2$
+
+-   **Normality of the error:** this hypothesis requires that the error terms ($\varepsilon_i$) follows a normal distribution. $\forall i, \varepsilon_i \sim \mathcal{N}(0, \sigma^2)$.
+
+-   **Independence of errors:** $Cov(\varepsilon_i,\varepsilon_j)$.
+
+-   **Non collinearity of the explanatory variables** (for multiple linear models only, *c.f* dedicated section).
+
+## 2.1 Introduction with visualization
+
+Plot the expression of the gene IL13 and IL4R as a function of Age for the SEB stiumulus. In the `ggplot` process, use `?geom_smooth` with the `method = lm` to visualize the line of the trend of the expression regarding Age. Comment if there is a need to apply some transformation on the data.
+
+```{r}
+# Create table with gene expression for SEB stimulus
+
+
+# Plot IL3 as a function of Age for the SEB stimulus
+
+
+# Plot IL4R as a function of Age for the SEB stimulus
+
+```
+
+*Comment on the outputs*:
+
+## 2.2 Performing simple linear models
+
+### 2.2.1 Fitting your first linear model
+
+Perform a linear models to test the association between IL13 upon SEB stiumulation and Age. First do not focus on the tidy syntax, just perform the linear model with `?lm` and display the result. You can use the function `?summary` to have a better visualization of the results.
+
+```{r}
+# Fit the linear model
+
+# Access the summary: 
+## Put the value of the summary in a variable, it will be easier to play with the values
+
+```
+
+You can play with the summary of the fit and try to access to different elements of the fit results ( $R^2$, coefficients, residuals, $F$-statistic...)
+
+```{r}
+# Non exhaustive list
+
+## Coefficients 
+
+## R^2 and Adjusted R^2
+
+## F stat
+
+## Others ??? 
+```
+
+### 2.2.2 Checking the conditions of the linear model
+
+There is a very quick way to make a diagnostic of your linear models. The output of `lm` has a certain structure that is compatible with the base function `plot` from R and you can visualize both the homoscedasticity and the normality of the residuals.
+
+Using `plot` with a fitted model will give you 4 plots:
+
+-   **Residuals vs fitted:** This plot can be used to check for the linear relationship assumptions. Horizontal line without distinct patterns indicates linear relationship.
+
+-   **QQ-plot:** This plot is made to check whether the residuals are normally distributed. The dots should follow the straight line.
+
+-   **Scale-Location:** This plot can be used to check for homoscedasticity (homogeneity of variance) of the error terms (residuals). A horizontal line and uniform spread of the dots is an indication of homoscedasticity.
+
+-   **Residuals vs Leverage:** Identifications of extreme values driving the linear regression results.
+
+```{r}
+
+```
+
+### 2.2.3 Plot the result of the linear regression (bonus)
+
+<details>
+
+<summary>Show plot of linear regression line</summary>
+
+Use the output of `lm` to plot the regression line of IL13 as a function of Age for SEB stimulation.
+
+*Some theory reminder*
+
+-   The equation of the straight line from the single variate linear regression is $$ y = \beta_0 + \beta_1 x $$
+
+-   where, $\beta_i$ are the estimates of the linear regression and $x$ the variable of interest.
+
+For this purpose, you can use the function `predict`.
+
+```{r}
+# Create a data frame that covers the age range of the donors
+
+
+# Perform the prediction
+
+
+# Clean the prediction
+
+
+# Plot the prediction
+
+```
+
+</details>
+
+### 2.2.4 Use the tidy approach with the linear models
+
+Use the function `tidy` to access the part that is of interest for our question and interpret the results. What can you say on the relationship between Age and the expression of IL13 under SEB stimulation. Do the same with the IL4R gene. Comment on the results.
+
+```{r}
+# or if you already fitted the model and got the result into a variable "fit"
+# fit %>% broom::tidy()
+
+```
+
+*Comment on the results*: ...
+
+What is the percentage of variance explained of your model? Is the model overall significant.
+
+```{r}
+
+```
+
+*Comment on the results* :
+
+## 2.3 Multiple linear models
+
+**Reminders**
+
+So far, you have only seen a regression model including only one variable. In this section you're going to see how to integrate several variables in one model.
+
+In the case of a multiple linear model where you want to integrate $p \geq 2$ variables $\{ x_i \}_{1 \leq i\leq p}$, the formula of the linear line from the model is $$ y = \beta_0 +  \sum_{i = 1}^{p} \beta_i x_i = \beta_0 + \beta_1 x_1 + \beta_2 x_2 + ... + \beta_p x_p $$ where $\beta_i$ are the estimates for the variable $i$.
+
+*Important note* : When you apply multiple linear models, make sure that the variables you integrate in the model have no co-linearity between each other (*c.f* picture above).
+
+![](images/Capture%20d’écran%202024-11-07%20à%2011.39.18.png)
+
+### 2.3.1 Perform a multiple linear model
+
+In this section, you are going to test associations between IL4R and Age correcting for BMI.
+
+$$
+y_{IL4R} = \beta_0 + \beta_{Age} x_{Age} + \beta_{BMI} x_{BMI}
+$$
+
+Before applying the model, check for eventual collinearity between Age and BMI. Comment what you observe.
+
+```{r}
+
+```
+
+*Comments on the output*: ...
+
+Perform the multiple linear model and comment on the results.
+
+```{r}
+
+```
+
+*Comments on the output*:
+
+What is the variance explained of this model, compare with the previous one:
+
+```{r}
+
+```
+
+*Comment on the results*:
+
+Is this improvement of the model significant?
+
+```{r}
+
+```
+
+*Comment on the result* :
+
+### 2.2.3 Interactions
+
+[![Image take from Biostatistic Collaboration of Australia.](images/clipboard-51600845.png){width="576"}](https://bookdown.org/tpinto_home/regression_modelling_for_biostatistics_1/006-interaction_collinearity.html)
+
+You can try to visualize the potential interaction of age and sex (before testing it) using `geom_smooth` and using the right parameter to color for each sex. Make this visualization for stimulation **SEB** for the genes IL13 and IRF8. Can you already guess if the interaction is significant? for IL13? for IRF8?
+
+```{r}
+# IL13
+
+
+# IRF8
+```
+
+*Comment on the output*: ...
+
+You can now test for potential interaction between Age and Sex for the expression of genes IL13 and IRF8 for SEB stimulation.
+
+```{r}
+
+```
+
+*Comment on the outputs*: ...
+
+### 2.2.4 Regression over all the genes (bonus)
+
+<details>
+
+<summary>Show regression over all the genes</summary>
+
+Like what we did for Anova, you can perform a multiple linear model over all the genes for SEB stimulation integrating Age and Sex as covariates.
+
+```{r}
+
+```
+
+</details>
+
+### 2.2.5 Two-way ANOVA (bonus)
+
+<details>
+
+<summary>Show two-way ANOVA</summary>
+
+Retake the analysis we did with the ANOVA and the Smoking variables and do that including Sex as a covariate.
+
+```{r}
+# Perform ANOVA test with SEX correction 
+
+# p.value correction
+
+# Visualization
+
+```
+
+</details>
+
+## 2.4 Using `limma` for linear models (bonus)
+
+Following the cookbook on linear models, perform a linear model to fit all the genes for the influenza stimulation as a function of Sex, Age and BMI.
+
+### 2.4.1 Prepare the data before fitting the model
+
+Prepare a table with the expression of genes for the influenza stimulus and including Sex, Age and BMI.
+
+```{r}
+# Define the list of genes we want to keep for the model
+
+# Prepare the table
+
+```
+
+### 2.4.2 Create the design matrix of the model
+
+Include Sex, Age and BMI in the explanatory variables of the model.
+
+```{r}
+# Create the design matrix of the model
+
+```
+
+### 2.4.3 Prepare the data for `limma`
+
+Create the expression matrix with the genes in rows and subjects in columns.
+
+```{r}
+# Select genes and transpose the matrix
+
+```
+
+### 2.4.4 Fit the linear model using `limma`
+
+Use `lmFit` to fit the linear models integrating the variables specified in the design matrix. Also, adjust the model with `eBayes`.
+
+```{r}
+# Fit the model
+
+
+# Adjust the model (Bayesian correction)
+
+```
+
+### 2.4.5 Get the results for each gene
+
+For each variable, get the results of the `limma` model.
+
+```{r}
+# Age
+
+
+# Sex
+
+
+# BMI
+
+
+# Combine results together
+
+```
+
+### 2.4.6 Plot results
+
+For each variable make a volcano plot to visualize the results of the linear models.
+
+#### (a) Modify the results table to log transform the adjusted p-values
+
+```{r}
+
+```
+
+#### (b) Add information about the significant differentially expressed genes
+
+Create a categorical variable to know if a gene is significantly differentially expressed or not, it will help to color the plot.
+
+```{r}
+
+```
+
+#### (c) Make the volcano plots
+
+```{r}
+# Age
+
+
+# Sex
+
+
+# BMI
+
+```
+
+Add the name of the genes for the significant ones `ggrepel::geom_text_repel`.
+
+```{r}
+library(ggrepel)
+# Age
+
+
+# Sex
+
+# BMI
+
+```

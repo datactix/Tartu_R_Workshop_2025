@@ -1,0 +1,196 @@
+---
+title: "PCA Exploration on Synthetic Data"
+format: 
+  html:
+    toc: true
+    toc-location: left
+    toc_float: true
+    embed-resources: true
+editor: visual
+---
+
+In this report, we will introduce the main concepts behind the Principal Component Analysis method by using a synthetic dataset. By controlling the initial structure of the dataset, it will help us to better understand the outputs of the method, and their interpretations.
+
+## Set-Up
+
+```{r}
+library(tidyverse)
+library(FactoMineR)
+library(factoextra)
+
+# For reproducibility purposes
+set.seed(42)
+```
+
+## Synthetic Data Generation
+
+**Build a synthetic dataset with the following properties:**
+
+-   Consider a group of 50 patients: group_1
+
+-   Generate a synthetic dataset simulating the expression of 5 cytokines.
+
+-   These cytokine expressions are not random. We build into the data a controlled level of correlations. First, cytokine\_{1,2,3} are highly correlated, and cytokine\_{4,5} are also highly correlated between them, but have very little correlation with the first three.
+
+```{r}
+# number of patients to simulate
+nb_patients_gp1 <- 50
+
+# we consider that we have normalized expression with mean=0
+cytokine_means_gp1 <- c(cytokine_1 = 0, cytokine_2 = 0, cytokine_3 = 0, cytokine_4 = 0, cytokine_5=0)
+# we build a covariance matrix to describe the correlation structure between the variables
+cytokine_covariance_mtx_gp1 <- matrix(c(1.0, 0.8, 0.9, 0.1, 0.1,
+                                        0.8, 1.0, 0.8, 0.1, 0.1,
+                                        0.9, 0.8, 1.0, 0.1, 0.1,
+                                        0.1, 0.1, 0.1, 1.0, 0.9,
+                                        0.1, 0.1, 0.1, 0.9, 1.0), nrow = 5)
+
+# build a tibble data.frame with subject_id and group_id
+df_group_1 <- tibble(subject_id = paste0("SUBJ",1:nb_patients_gp1),
+                     group_id = "group_1") |> 
+  # add columns related to cytokine expressions 
+  dplyr::bind_cols(as_tibble(MASS::mvrnorm(n = nb_patients_gp1,
+                                          mu = cytokine_means_gp1, 
+                                          Sigma = cytokine_covariance_mtx_gp1)))
+
+head(df_group_1)
+```
+
+## Pair plot visualization
+
+A **pair plot** is a grid of scatterplots showing pairwise relationships between all variables in a dataset. Each scatterplot visualizes the relationship between two variables, while diagonal elements typically display histograms or density plots of individual variables.
+
+It helps identify correlations, patterns, or clusters between variables. It provides a compact summary of variable interactions and distributions. It can also highlights unusual observations across combinations of variables.
+
+However, it becomes challenging to display when the size of the variables grows over 10-15 variables.
+
+```{r}
+GGally::ggpairs(data = df_group_1, columns = 3:7, progress = FALSE)
+```
+
+## Run a PCA on Group 1 samples
+
+**Principal Component Analysis (PCA)** is a dimensionality reduction technique that transforms a dataset with potentially correlated variables into a smaller set of uncorrelated variables called **principal components (PCs)**. These components are linear combinations of the original variables, ordered by the amount of variance they explain in the data.
+
+This method enables plotting and understanding complex datasets in two or three dimensions by projecting them onto the leading PCs. **PCA** is particularly valuable in exploratory data analysis, compressing data while maintaining interpretability.
+
+```{r}
+pca_gp1 <- FactoMineR::PCA(X = df_group_1, 
+                           scale.unit = TRUE, 
+                           ncp = 5, 
+                           quali.sup = which(names(df_group_1) %in% c("subject_id", "group_id")), 
+                           graph = FALSE)
+```
+
+### Scree plot representation
+
+A **scree plot** is a graphical representation of the variance explained by each principal component (PC) in a PCA analysis. It typically displays the **eigenvalues** or **the proportion of variance explained** by each PC on the y-axis, plotted against the component number on the x-axis.
+
+The scree plot helps determine how many PCs should be retained by showing where the explained variance begins to level off (often called the "elbow"). PCs beyond this point contribute minimally to explaining the variance and are typically discarded.
+
+By focusing on the few components that explain most of the variance, the scree plot aids in dimensionality reduction while retaining meaningful information.
+
+```{r}
+factoextra::fviz_screeplot(pca_gp1)
+```
+
+**Note:**
+
+-   The dataset has 5 variables, however the scree plot shows that most of the variance is carried by only 2 principal components. This is due to the fact that we have 2 bundles of highly correlated variables(1,2,3 and 4,5).
+
+### Bi-plot representation
+
+A **biplot** in PCA is a graphical representation that combines information about the **observations**, the **principal components (PCs),** and the **original variables** in a single plot. It typically displays the scores of the observations (rows of the dataset) as points, and the loadings of the variables (columns of the dataset) as vectors.
+
+For the **observations**, it shows how they relate to each other in the reduced dimensional space (e.g., clustering or patterns among data points). The closer two observations are, the more they have in common compared to the rest of the observations.
+
+For the **variables**, it highlights correlations between variables when variable vectors are pointing in the same direction, and when they align with a given PC, it shows how they contribute to it.
+
+```{r}
+factoextra::fviz_pca_biplot(pca_gp1, 
+                            axes = c(1,2), 
+                            geom = "point",
+                            col.var = "blue",
+                            # Use of cytokine_2 values to color observations
+                            col.ind = df_group_1$cytokine_2,
+                            legend.title = "Cytokine 2 Expression", 
+                            gradient.cols = c("#00AFBB", "#FC4E07"),
+                            repel = TRUE)
+```
+
+**Interpretation of the plot:**
+
+-   PC1 carries 54% of the variance, and PC2 carries 37% (total of 91% for the 2D plot)
+
+-   We don't see any special patterns, or clustering, amongst the observations.
+
+-   The vectors of the variables reflect the built-in correlation structure of the dataset (high correlation between {1,2,3}, and {4,5}. The fact that the 2 bundles of vector have 90 degrees angle between them show that they are uncorrelated.
+
+-   Vectors of the variables point in the direction of the observations with the highest expression.
+
+-   PC1 is mostly represented by cytokines {1,2,3}, and PC2 is motly represented by cytokines {4,5}
+
+### Add another group of patients
+
+-   Keep the same correlation structure between the cytokines, however shift the mean values for the cytokines 4 and 5, as if a stimulation had increased their levels.
+
+```{r}
+nb_patients_gp2 <- 50
+
+# increased mean level for cytokine 4 and 5 compared to group_1
+cytokine_means_gp2 <- c(cytokine_1 = 0, cytokine_2 = 0, cytokine_3 = 0, cytokine_4 = 6, cytokine_5=6)
+# same as before
+cytokine_covariance_mtx_gp2 <- matrix(c(1.0, 0.8, 0.9, 0.1, 0.1,
+                                        0.8, 1.0, 0.8, 0.1, 0.1,
+                                        0.9, 0.8, 1.0, 0.1, 0.1,
+                                        0.1, 0.1, 0.1, 1.0, 0.9,
+                                        0.1, 0.1, 0.1, 0.9, 1.0), nrow = 5)
+
+# build a tibble data.frame with subject_id and group_id
+df_group_2 <- tibble(subject_id = paste0("SUBJ",(nb_patients_gp1+1):(nb_patients_gp1+nb_patients_gp2)),
+                     group_id = "group_2") |> 
+  # add columns related to cytokine expressions 
+  dplyr::bind_cols(as_tibble(MASS::mvrnorm(n = nb_patients_gp2,
+                                          mu = cytokine_means_gp2, 
+                                          Sigma = cytokine_covariance_mtx_gp2)))
+
+# aggregate both groups into a unique data.frame
+df_groups <- dplyr::bind_rows(df_group_1, df_group_2)
+tail(df_groups)
+```
+
+**Pair plot exploration**
+
+```{r}
+GGally::ggpairs(df_groups, aes(colour = group_id, alpha = 0.4), columns=3:7, progress = FALSE)
+```
+
+**Note**:
+
+-   the two groups of patients appears to be separated only when considering cytokine {4,5}
+
+### Run PCA on both groups
+
+```{r}
+pca_gps <- FactoMineR::PCA(X = df_groups, 
+                           scale.unit = TRUE, 
+                           ncp = 5, 
+                           quali.sup = which(names(df_group_1) %in% c("subject_id", "group_id")), 
+                           graph = FALSE)
+```
+
+### Bi-plot representation
+
+```{r}
+fviz_pca_biplot(pca_gps, 
+                axes = c(1,2), 
+                geom = "point", 
+                habillage = which(names(df_group_1) %in% c("group_id")),
+                addEllipses = TRUE, ellipse.level = 0.95, 
+                col.var = "blue",
+                repel = TRUE)
+```
+
+**Note**:
+
+-   It can be observed that the observations from the group 1 and group 2 are clustered and well separated. And, it is important to notice that the axis of separation is perpendicular to the cytokine {4,5} direction (because the 2 groups differs in mean expression for these 2 cytokines).

@@ -1,0 +1,61 @@
+---
+title: "ggsignif exploration"
+author: "me"
+format: html
+editor: visual
+---
+
+## Set-up
+
+```{r}
+library(ggplot2)
+library(ggsignif)
+```
+
+```{r}
+ggplot(iris, aes(x = Species, y = Sepal.Length, fill = Species)) +
+  geom_boxplot(color = "black") +
+  geom_jitter(aes(color=Species),fill="black", width = 0.1, shape = 21) +
+  # using `ggsignif` to display comparison of interest
+  geom_signif(
+    comparisons = list(c("versicolor", "virginica")),
+    map_signif_level = TRUE
+  ) #+
+  #labs(title = "Boxplot on Iris dataset") +
+  #theme_bw()
+```
+
+## New example
+
+```{r}
+dat <- data.frame(
+  Group = c("S1", "S1", "S2", "S2", "S3", "S3"),
+  Sub = c("A", "B", "A", "B", "A", "B"),
+  Value = c(3, 5, 7, 8, 2, 9)
+)
+dat
+```
+
+```{r}
+my_plot <- ggplot(dat, aes(x = Group, y = Value)) +
+  geom_bar(aes(fill = Sub), stat = "identity", position = "dodge", width = .5) +
+  geom_signif(
+    y_position = c(5.3, 8.3, 9.5), xmin = c(0.8, 1.8, 2.8), xmax = c(1.2, 2.2, 3.2),
+    annotation = c("**", "NS", "***"), tip_length = 0
+  ) +
+  geom_signif(
+    comparisons = list(c("S1", "S2")),
+    y_position = 10.3, tip_length = 0, vjust = 0.2
+  )+
+  geom_signif(
+    comparisons = list(c("S2", "S3")),
+    y_position = 10.3, tip_length = 0, vjust = 0.2
+  ) +
+  scale_fill_manual(values = c("grey80", "grey20"))
+
+my_plot
+```
+
+```{r}
+ggplot2::ggsave(plot = my_plot, filename = "outputs/my_plot_ggsignif.pdf", width = 15, height = 3)
+```

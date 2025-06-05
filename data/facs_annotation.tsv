@@ -1,0 +1,77 @@
+FACS.NAME	FACS.DESC	Type
+CD16hi	CD16hi NK cells	Innate
+CD56hi	CD56hi NK cells	Innate
+CD69posCD16hi	CD69+ CD16hi NK cells	Innate
+CD69posCD56hi	CD69+ CD56hi NK cells	Innate
+CD8aposCD16hi	CD8a+ CD16hi NK cells	Innate
+CD8aposCD56hi	CD8a+ CD56hi NK cells	Innate
+HLADRposCD56hi	HLA-DR+ CD56hi NK cells	Innate
+NK_cells	NK cells	Innate
+CD14hi_mono	CD14hi monocytes	Innate
+CD16hi_mono	CD16hi monocytes	Innate
+mono	monocytes	Innate
+CD45pos	CD45+ cells	Innate
+total	total number of cells	Innate
+VIABLE_BASOPHILS	basophils	Innate
+VIABLE_EOSINOPHILS	eosinophils	Innate
+VIABLE_NEUTROPHILS	neutrophils	Innate
+cDC1	cDC1	Innate
+cDC3	cDC3	Innate
+pDC	pDC	Innate
+ILC	ILC	Innate
+ILC1	ILC1	Innate
+group2_ILC	ILC2	Innate
+CD56negCD117pos_LTiandILC3	ILC3	Innate
+CD56_ILC	CD56+ ILC	Innate
+CD161pos_CD56negCD117pos_LTiandILC3	CD161+ ILC3	Innate
+CD56posNKp44neg_group1and3_ILC	NCR- CD56+ ILC	Innate
+NCRpos_ILC3	NCR+ CD56+ ILC	Innate
+CD8bnegCD4neg	CD8b- CD4- T cells	Adaptive
+CD3pos	T cells	Adaptive
+CD4pos	CD4+ T cells	Adaptive
+CM_CD4pos	CM CD4+ T cells	Adaptive
+EM_CD4pos	EM CD4+ T cells	Adaptive
+CD4pos_naive	naive CD4+ T cells	Adaptive
+CD8bpos	CD8b+ T cells	Adaptive
+CM_CD8bpos	CM CD8+ T cells	Adaptive
+EM_CD8bpos	EM CD8+ T cells	Adaptive
+EMRA_CD8bpos	EMRA CD8+ T cells	Adaptive
+CD8bpos_naive	naive CD8+ T cells	Adaptive
+CM_HLADRpos_in_CD4pos	HLA-DR+ CM CD4+ T cells	Adaptive
+EM_HLADRpos_in_CD4pos	HLA-DR+ in EM CD4+ T cells	Adaptive
+CM_HLADRpos_in_CD8bpos	HLA-DR+ CM CD8+ T cells	Adaptive
+EM_HLADRpos_in_CD8bpos	HLA-DR+ EM CD8+ T cells	Adaptive
+EMRA_CD4pos	EMRA CD4+ T cells	Adaptive
+EMRA_HLADRpos_in_CD4pos	HLA-DR+ EMRA CD4+ T cells	Adaptive
+EMRA_HLADRpos_in_CD8bpos	HLA-DR+ EMRA CD8+ T cells	Adaptive
+Treg_activated	activated Treg	Adaptive
+T_conventional	conventional T cells	Adaptive
+Treg_memory	memory Treg	Adaptive
+Treg_naive	naive Treg	Adaptive
+Treg	Treg cells	Adaptive
+gdTCRpos	gd+ T cells	Adaptive
+TOTAL_MAIT_OF_CD3	MAIT cells	Adaptive
+CD4negCD8neg_MAIT	CD4- CD8- MAIT cells	Adaptive
+CD4negCD8neg_MAIT_HLADRpos	HLA-DR+ CD4- CD8- MAIT cells	Adaptive
+CD8_MAIT	CD8+ MAIT cells	Adaptive
+TOTAL_NKT_OF_CD3	NKT in T cells	Adaptive
+C4negCD8neg_NKT	CD4- CD8- NKT cells	Adaptive
+CD4negCD8neg_NKT_HLADRpos	HLA-DR+ CD4- CD8- NKT cells	Adaptive
+Bcells	B cells	Adaptive
+BcellsCD21negCD27neg	CD21- CD27- B cells	Adaptive
+BcellsCD21negCD27pos	CD21- CD27+ B cells	Adaptive
+FounderB	founder B cells	Adaptive
+GC_Bcells	germinal center B cells	Adaptive
+memBcells	memory B cells	Adaptive
+DN_memBcells	double negative memory B cells	Adaptive
+memBcellsCD24hi	CD24hi memory B cells	Adaptive
+memBcellsCD24lo	CD24low memory B cells	Adaptive
+mzB	marginal zone B cells	Adaptive
+mzBIgMneg	IgM- marginal zone B cells	Adaptive
+mzBIgMpos	IgM+ marginal zone B cells	Adaptive
+NaiveB	naive B cells	Adaptive
+TransitionalB	transitional B cells	Adaptive
+CCR6pos_CD4pos	CCR6+ CD4+ T cells	Adaptive
+CCR6pos_CD8pos	CCR6+ CD8+ T cells	Adaptive
+CRTh2pos	CRTh2+ CD4+ cells	Adaptive
+CXCR5pos	CXCR5+ CD4+ T cells	Adaptive

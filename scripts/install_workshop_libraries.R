@@ -7,11 +7,10 @@ install.packages("writexl")
 install.packages("here")
 
 # Data Viz
-# OK
+install.packages("GGally")
 
 # PCA
 install.packages("corrplot")
-install.packages("GGally")
 install.packages("FactoMineR")
 install.packages("factoextra")
 install.packages("ggpubr")

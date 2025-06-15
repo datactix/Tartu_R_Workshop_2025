@@ -55,7 +55,8 @@ var_to_remove <- c("Temperature", "HeartRate", "Employed", "Education", "Income"
 Expr <- read.csv(file = here::here("data/curated_datasets/MI_Nanostring-eCRF_Curated.tsv"),
                  sep = "\t", header = T) %>% 
         select(-any_of(var_to_remove)) %>% 
-        filter(!is.na(Stimulus))
+        filter(!is.na(Stimulus)) %>% 
+        mutate_at(.vars = 8:567, .funs = log2)
 
 # Load facs data and the annotation
 facs <- read.csv(file = here::here("data/curated_datasets/MI_Cytometry-eCRF_Curated.tsv"),
